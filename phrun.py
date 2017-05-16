@@ -1,3 +1,4 @@
+from datetime import datetime
 import pandas as pd
 import numpy as np
 import networkx as nx
@@ -10,7 +11,7 @@ import helpers
 from helpers import get_permutation, model_status, load_data, power_injections 
 from helpers import injection_sample, get_b_from_dist
 
-def main(savename,fdata,method='ph',mode='real'):
+def main(savename, fdata, method='ph', mode='synth'):
     """
         modes:
             real: only shuffle injections and impedance
@@ -45,9 +46,15 @@ def main(savename,fdata,method='ph',mode='real'):
     else:
         #gen_params = {'vmax':800,'vmin':2,'dist':'exp','params':230.4}
         #load_params = {'vmax':275,'vmin':4,'dist':'lognorm','params':(3.4315,0.8363)}
-        gen_params  = {'vmax':2.5e3,'vmin':0.1,'dist':'exp',    'params':77.86}
-        load_params = {'vmax':365,  'vmin':0.1,'dist':'lognorm','params':(2.247,0.8737)}
-        Pg,Pd = injection_sample(G.number_of_nodes(),int_frac=0.23,inj_frac=0.053,gen_only_frac=0.03,gen_params=gen_params,load_params=load_params)
+        #gen_params  = {'vmax':2.5e3,'vmin':0.1,'dist':'exp',    'params':77.86}
+        #load_params = {'vmax':365,  'vmin':0.1,'dist':'lognorm','params':(2.247,0.8737)}
+        #Pg,Pd = injection_sample(G.number_of_nodes(),int_frac=0.23,inj_frac=0.053,gen_only_frac=0.03,gen_params=gen_params,load_params=load_params)
+        fitp = pickle.load(open('./cases/polish2383_wp_power_kdefit.pkl','rb'))
+        gen_params  = {'vmax': fitp['vmax']['Pg'], 'vmin': fitp['vmin']['Pg'], 'dist': 'kde', 'params': fitp['Pgkde']}
+        load_params = {'vmax': fitp['vmax']['Pd'], 'vmin': fitp['vmin']['Pd'], 'dist': 'kde', 'params': fitp['Pdkde']}
+        Pg,Pd = injection_sample(G.number_of_nodes(),int_frac=fitp['frac']['intermediate'],
+                inj_frac=fitp['frac']['net_inj'],gen_only_frac=fitp['frac']['gen_only'],
+                gen_params=gen_params,load_params=load_params)
         p = (Pg - Pd)/100
         p_in = dict(zip(range(G.number_of_nodes()),p))
 
@@ -57,7 +64,9 @@ def main(savename,fdata,method='ph',mode='real'):
         b_in = dict(zip(range(G.number_of_edges()),b))
     else:
         #b = get_b_from_dist(branch_num,dist='gamma',params=(1.88734, 0, 0.05856)) 
-        b = get_b_from_dist(G.number_of_edges(),dist='exp',params=(0,0.041),vmin=1e-4,vmax=0.4632) 
+        #b = get_b_from_dist(G.number_of_edges(),dist='exp',params=(0,0.041),vmin=1e-4,vmax=0.4632) 
+        fitb = pickle.load(open('./cases/polish2383_wp_reactance_kdefit.pkl','rb'))
+        b = get_b_from_dist(G.number_of_edges(), dist='kde', params=fitb['kde'], vmin=fitb['vmin'], vmax=fitb['vmax']) 
         b_in = dict(zip(range(G.number_of_edges()),b))
 
     ####### constant inputs #########
@@ -84,10 +93,7 @@ def main(savename,fdata,method='ph',mode='real'):
     nu = {}
     nu_map = {}
     solvers = []
-    #p_in = np.random.permutation(p_in).tolist()
-    #b_in = np.random.permutation(b_in).tolist()
-    #p_out = np.zeros(G.number_of_nodes())
-    #b_out = np.zeros(G.number_of_edges())
+
     logging.info('Splitting graph into zones')
     zones, boundaries, eboundary_map = zp.get_zones(G,Nmax,Nmin)
     logging.info('%d Zones created',len(zones))
@@ -97,12 +103,7 @@ def main(savename,fdata,method='ph',mode='real'):
     boundary_edges,n2n = zp.boundary_edges(G,zones) 
     #pickle.dump((zones,boundaries,boundary_edges,n2n),open('zone_dump.pkl','wb'))
     pickle.dump((zones, boundaries, eboundary_map,boundary_edges,n2n),open('zone_dump.pkl','wb'))
-    #imbalance = {}
-    #mdl = {}
-    #node_mapping = {}
-    #edge_mapping = {}
-    #ph = {}
-    #bh = {}
+
     zone_cnt = len(zones)
     for i,(H,boundary,ebound) in enumerate(zip(zones,boundaries,eboundary_map)):
         logging.info('Initializing Zone %d: nodes=%d, edges=%d', i, H.number_of_nodes(), H.number_of_edges())
@@ -112,12 +113,6 @@ def main(savename,fdata,method='ph',mode='real'):
             p_in.pop(k)
         for k in bh:
             b_in.pop(k)
-        #ph[i] = [p_in.pop() for k in ph[i]]
-        #bh[i] = [b_in.pop() for k in bh[i]]
-        #node_mapping = dict(zip(H.nodes(),range(H.number_of_nodes())))
-        #edge_mapping = {}
-        #for j,(u,v,l) in enumerate(H.edges_iter(data='id')):
-        #        edge_mapping[l] = j
 
         invars = {'G':H,'boundary':boundary, 'ebound':ebound,'p':ph,'b':bh,\
                 'M':M,'delta_max':delta_max,'f_max':f_max,'balance_epsilon':balance_epsilon}
@@ -184,13 +179,7 @@ def main(savename,fdata,method='ph',mode='real'):
         for z in beta:
             for k,v in beta[z].items():
                 gap += np.abs(v - beta_bar[k])
-        #str_tmp = ", ".join(["%d: %0.2f" %(k,v) for k,v in sorted(beta.items())])
-        #logging.debug("beta    : {" + str_tmp + "}")
 
-        #str_tmp = ", ".join(["%d: %0.2f" %(k,v) for k,v in sorted(beta_bar.items())])
-        #logging.debug("beta_bar: {" + str_tmp  + "}")
-        #for u,v in boundary_edges:
-        #    logging.debug("(%d, %d): (%0.2f, %0.2f)",u,v,beta[u],beta[v])
         mean_beta_diff = sum(beta_diff.values())/len(beta_diff)
         max_beta_diff  = max(beta_diff.values())
         logging.info("   GAP: %0.3f, MEAN beta_diff: %0.3f, MAX beta_diff: %0.3f", gap, mean_beta_diff, max_beta_diff)
@@ -206,8 +195,6 @@ def main(savename,fdata,method='ph',mode='real'):
                 bdump[solver.zone] = solver.b_out
             elif method == 'lr':
                 solver.lr_objective_update(nu,nu_map)
-            #str_tmp = ", ".join(["%d: %0.2f" %(solver.inv_node_map[k],v) for k,v in sorted(solver.w.items())])
-            #logging.debug("w_%d: {" + str_tmp  + "}", solver.zone)
         if method == 'ph':
             pickle.dump((beta,beta_bar,beta_diff,wdump,nu_map,pdump,bdump),open('iteration_%d_dump_%s.pkl' %(iter,method),'wb'))
         elif method == 'lr':
@@ -236,18 +223,10 @@ def main(savename,fdata,method='ph',mode='real'):
         b_out.update(solver.b_out)
         theta_out.update(solver.theta_out)
     
-    #boundary_angle_diff = {}
-    #for u,v in boundary_edges:
-    #    boundary_angle_diff[u,v] = np.abs(theta_out[u] - theta_out[v])
-    
-    #edge_order = sorted(boundary_angle_diff,key=boundary_angle_diff.get,reverse=True)
     edge_order = sorted(beta_bar,key=lambda x: abs(beta_bar[x]),reverse=True)
     b_order    = sorted(b_in,key=b_in.get)
     for l in edge_order:
         b_out[l] = b_order.pop(0)
-    #for u,v in edge_order:
-    #    for i,d in G.edge[u][v].items():
-    #        b_out[d['id']] = b_order.pop(0)
     
     if len(p_out) != G.number_of_nodes():
         import ipdb; ipdb.set_trace()
@@ -256,7 +235,13 @@ def main(savename,fdata,method='ph',mode='real'):
     Pg_out = np.array([Pg[p_out[i]] for i in range(G.number_of_nodes())])
     Pd_out = np.array([Pd[p_out[i]] for i in range(G.number_of_nodes())])
     b_out  = np.array([b[b_out[i]]  for i in range(G.number_of_edges())])
-    pickle.dump({'Pg': Pg_out, 'Pd': Pd_out, 'b': b_out},open(savename,'wb'))
+
+    import assignment_analysis as asg
+    ref = np.argmax((Pg_out - Pd_out)/100)
+    pf, Gpf = asg.DC_powerflow((Pg_out - Pd_out)/100, b_out, f_node, t_node, ref)
+    saveparts = savename.split('.') 
+    pickle.dump({'Pg': Pg_out, 'Pd': Pd_out, 'b': b_out, 'G': Gpf, 'pf': pf, 'ref': ref},
+            open(saveparts[0] + datetime.now().strftime('%d-%m-%Y_%H%M') + saveparts[1],'wb'))
 
 if __name__=='__main__':
     import sys

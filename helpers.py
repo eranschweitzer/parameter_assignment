@@ -242,7 +242,7 @@ def get_b_from_dist(M,dist='gamma',params=None,vmin=-np.inf,vmax=np.inf):
             x[i] = xtmp
     return -1./x
 
-def analyze_statistics(Pg,Pd,x,print_out=True):
+def analyze_power_statistics(Pg,Pd,print_out=True):
     """ analyze the power injections and per unit reactance of a case 
     assumes that Pg and Pd are the same size vectors """
     Gnum = sum(Pg > 0)
@@ -253,12 +253,10 @@ def analyze_statistics(Pg,Pd,x,print_out=True):
     vmin['Pg'] = min(Pg[Pg > 0])
     vmax['Pg'] = max(Pg[Pg > 0])
     vmin['Pd'] = min(Pd[Pd > 0])
-    vmax['Pd'] = max(Pd[Pg > 0])
-    vmin['x'] = min(x)
-    vmax['x'] = max(x)
+    vmax['Pd'] = max(Pd[Pd > 0])
     frac['intermediate'] = sum(p == 0)/p.shape[0]
     frac['net_inj'] = sum(p > 0)/p.shape[0]
-    frac['gen_with_load'] = sum((Pg > 0) & (Pd > 0))/Gnum
+    frac['gen_only'] = sum((Pg > 0) & (Pd == 0))/Gnum
 
     g90per = np.percentile(Pg[Pg > 0],90)
     corr_coeff, corr_coeff_pval = stats.pearsonr(Pg[Pg > 0],Pd[Pg > 0])
@@ -266,15 +264,22 @@ def analyze_statistics(Pg,Pd,x,print_out=True):
 
     Pgkde = kde_fit(Pg[Pg > 0])
     Pdkde = kde_fit(Pd[Pd > 0])
-    Xkde  = kde_fit(x)
     if print_out:
-        for s in ['Pg','Pd','x']:
+        for s in ['Pg','Pd']:
             print("%0.3g <= %s <= %0.3g" %(vmin[s],s,vmax[s]))
         for key,val in frac.items():
             print("Percent %s nodes = %0.2f%%" %(key,val*100))
         print("correlation between generation and load: %0.3g, p-value: %0.3g" %(corr_coeff, corr_coeff_pval))
         print("correlation between 90%% of generation and load: %0.3g, p-value: %0.3f, 90th percentile of Pg: %0.3g" %(corr_coeff90, corr_coeff90_pval, g90per))
     return {'frac':frac,'vmin':vmin,'vmax':vmax, 'Pgkde':Pgkde, 'Pdkde':Pdkde}
+
+def analyze_reactance_statistics(x,print_out=True):
+    vmin = min(x)
+    vmax = max(x)
+    kde  = kde_fit(x)
+    if print_out:
+        print("%0.3g <= x <= %0.3g" %(vmin, vmax))
+    return {'vmax': vmax, 'vmin': vmin, 'kde':kde}
 
 def kde_fit(x):
     """ returns a kde object fit to the values in x """

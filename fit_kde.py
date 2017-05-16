@@ -11,9 +11,11 @@ def main(fname):
     for bus,v in zip(gen_data['GEN_BUS'],gen_data['PG']):
         Pg[bus] += v
     
-    fit = hlp.analyze_statistics(Pg,Pd,x)
-    
-    pickle.dump(fit,open('%s_kdefit.pkl' %(fname), 'wb'))
+    fitp = hlp.analyze_power_statistics(Pg,Pd)
+    pickle.dump(fitp,open('%s_power_kdefit.pkl' %(fname), 'wb'))
+
+    fitx = hlp.analyze_reactance_statistics(x)
+    pickle.dump(fitx,open('%s_reactance_kdefit.pkl' %(fname), 'wb'))
 
 if __name__ == "__main__":
     main(sys.argv[1])
