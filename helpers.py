@@ -111,8 +111,15 @@ def load_sample(N,vmax=np.inf,vmin=-np.inf,dist='lognorm',params=None):
             while (samp is None) or (samp < vmin) or (samp > vmax):
                 samp = np.exp(params[0] + params[1]*stats.norm.rvs())
             out[i] = samp
+    elif dist == 'kde':
+        out = params.resample(size=N)
+        while np.any(out < vmin) or np.any(out > vmax):
+            ids = np.where((out < vmin) | (out > vmax))[0]
+            out = np.delete(out,ids)
+            tmp = params.resample(size=ids.shape[0])
+            out = np.concatenate((out,tmp))
     else:
-        print('Only log-normal distribution supported currently')
+        print('Only log-normal and kde distributions supported currently')
     
     if N == 1:
         return out[0]
@@ -127,6 +134,13 @@ def gen_sample(N,vmax=np.inf,vmin=-np.inf,dist='exp',params=None):
             while (samp is None) or (samp < vmin) or (samp > vmax):
                 samp = stats.expon.rvs(loc=0,scale=params)
             out[i] = samp
+    elif dist == 'kde':
+        out = params.resample(size=N)
+        while np.any(out < vmin) or np.any(out > vmax):
+            ids = np.where((out < vmin) | (out > vmax))[0]
+            out = np.delete(out,ids)
+            tmp = params.resample(size=ids.shape[0])
+            out = np.concatenate((out,tmp))
     else:
         print('Only exponential distribution supported currently')
     
@@ -204,18 +218,66 @@ def injection_equalize(Pg,Pd,vmax,vmin):
     return Pg
 
 def get_b_from_dist(M,dist='gamma',params=None,vmin=-np.inf,vmax=np.inf):
-    x = np.zeros(M)
     if dist == 'gamma':
         rv = stats.gamma(*params)
         #x = stats.gamma.rvs(*params, size=M)
-    if dist == 'exp':
+    elif dist == 'exp':
         rv = stats.expon(*params)
         #x = stats.expon.rvs(*params,size=M)
+    elif dist == 'kde':
+        x = params.resample(size=M)
+        while np.any(x < vmin) or np.any(x > vmax):
+            ids = np.where((x < vmin) | (x > vmax))[0]
+            x = np.delete(x,ids)
+            tmp = params.resample(size=ids.shape[0])
+            x = np.concatenate((x,tmp))
     else:
-        print('Only gamma distribution supported currently')
-    for i in range(M):
-        xtmp = rv.rvs(size=1)[0]
-        while (xtmp < vmin) or (xtmp > vmax):
+        print('Only gamma, exp, and kde  distributions supported currently')
+    if dist != 'kde':
+        x = np.zeros(M)
+        for i in range(M):
             xtmp = rv.rvs(size=1)[0]
-        x[i] = xtmp
+            while (xtmp < vmin) or (xtmp > vmax):
+                xtmp = rv.rvs(size=1)[0]
+            x[i] = xtmp
     return -1./x
+
+def analyze_statistics(Pg,Pd,x,print_out=True):
+    """ analyze the power injections and per unit reactance of a case 
+    assumes that Pg and Pd are the same size vectors """
+    Gnum = sum(Pg > 0)
+    p = Pg - Pd
+    frac = {}
+    vmin = {}
+    vmax = {}
+    vmin['Pg'] = min(Pg[Pg > 0])
+    vmax['Pg'] = max(Pg[Pg > 0])
+    vmin['Pd'] = min(Pd[Pd > 0])
+    vmax['Pd'] = max(Pd[Pg > 0])
+    vmin['x'] = min(x)
+    vmax['x'] = max(x)
+    frac['intermediate'] = sum(p == 0)/p.shape[0]
+    frac['net_inj'] = sum(p > 0)/p.shape[0]
+    frac['gen_with_load'] = sum((Pg > 0) & (Pd > 0))/Gnum
+
+    g90per = np.percentile(Pg[Pg > 0],90)
+    corr_coeff, corr_coeff_pval = stats.pearsonr(Pg[Pg > 0],Pd[Pg > 0])
+    corr_coeff90, corr_coeff90_pval = stats.pearsonr(Pg[(Pg > 0) & (Pg < g90per)],Pd[(Pg > 0) & (Pg < g90per)])
+
+    Pgkde = kde_fit(Pg[Pg > 0])
+    Pdkde = kde_fit(Pd[Pd > 0])
+    Xkde  = kde_fit(x)
+    if print_out:
+        for s in ['Pg','Pd','x']:
+            print("%0.3g <= %s <= %0.3g" %(vmin[s],s,vmax[s]))
+        for key,val in frac.items():
+            print("Percent %s nodes = %0.2f%%" %(key,val*100))
+        print("correlation between generation and load: %0.3g, p-value: %0.3g" %(corr_coeff, corr_coeff_pval))
+        print("correlation between 90%% of generation and load: %0.3g, p-value: %0.3f, 90th percentile of Pg: %0.3g" %(corr_coeff90, corr_coeff90_pval, g90per))
+    return {'frac':frac,'vmin':vmin,'vmax':vmax, 'Pgkde':Pgkde, 'Pdkde':Pdkde}
+
+def kde_fit(x):
+    """ returns a kde object fit to the values in x """
+    return stats.gaussian_kde(x)
+
+
