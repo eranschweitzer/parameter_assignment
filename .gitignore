@@ -1,0 +1,15 @@
+.DS_Store
+*.pdf
+*.log
+*.~
+*.aux
+*.gz
+*.pyc
+*.pkl
+*.png
+.ipynb_checkpoints/*
+*.ipynb
+*.gml
+*.xlsx
+*.bbl
+*.blg
