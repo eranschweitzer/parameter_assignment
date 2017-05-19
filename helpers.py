@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 import pickle
-from scipy import stats
+from scipy import stats, optimize, interpolate
 
 def var2mat(var,M):
     """M is size as a tuple
@@ -10,6 +10,7 @@ def var2mat(var,M):
     out = np.zeros(M)
     for key in var:
         out[key] = var[key].X
+    return out
 
 def model_status(m):
     status_codes = {1:'Loaded', 2:'Optimal',3:'Infeasible',4:'Inf_OR_UNBD',5:'Unbounded',6:'Cutoff',
@@ -111,18 +112,20 @@ def load_sample(N,vmax=np.inf,vmin=-np.inf,dist='lognorm',params=None):
             while (samp is None) or (samp < vmin) or (samp > vmax):
                 samp = np.exp(params[0] + params[1]*stats.norm.rvs())
             out[i] = samp
-    elif dist == 'kde':
-        out = params.resample(size=N)
+    elif (dist == 'kde') or (dist == 'pchip'):
+        out = params.resample(size=N).squeeze()
         while np.any(out < vmin) or np.any(out > vmax):
             ids = np.where((out < vmin) | (out > vmax))[0]
             out = np.delete(out,ids)
-            tmp = params.resample(size=ids.shape[0])
+            tmp = params.resample(size=ids.shape[0]).squeeze()
+            if ids.shape[0] == 1:
+                tmp = np.array([tmp])
             out = np.concatenate((out,tmp))
     else:
-        print('Only log-normal and kde distributions supported currently')
+        print('Only log-normal, kde, and pchip distributions supported currently')
     
     if N == 1:
-        return out[0]
+        return np.array([out])
     else:
         return out
 
@@ -134,58 +137,159 @@ def gen_sample(N,vmax=np.inf,vmin=-np.inf,dist='exp',params=None):
             while (samp is None) or (samp < vmin) or (samp > vmax):
                 samp = stats.expon.rvs(loc=0,scale=params)
             out[i] = samp
-    elif dist == 'kde':
-        out = params.resample(size=N)
+    elif (dist == 'kde') or (dist == 'pchip'):
+        out = params.resample(size=N).squeeze()
         while np.any(out < vmin) or np.any(out > vmax):
             ids = np.where((out < vmin) | (out > vmax))[0]
             out = np.delete(out,ids)
-            tmp = params.resample(size=ids.shape[0])
+            tmp = params.resample(size=ids.shape[0]).squeeze()
+            if ids.shape[0] == 1:
+                tmp = np.array([tmp])
             out = np.concatenate((out,tmp))
     else:
-        print('Only exponential distribution supported currently')
+        print('Only exponential, kde, and pchip distributions supported currently')
     
     if N == 1:
-        return out[0]
+        return np.array([out])
     else:
         return out
 
-def injection_sample(N,int_frac=0.08,inj_frac=0.13,gen_only_frac=0.5,gen_params=None,load_params=None):
+def injection_sample(N,frac=None,gen_params=None,load_params=None):
     """ parameter inputs need to include a maximum and minimum vmax,vmin,
     a distribution name and the corresponding parameters for it"""
+    #int_frac=0.08,inj_frac=0.13,gen_only_frac=0.5
+    Nint = int(np.round(N*frac['intermediate']))
+    NPg  = int(np.round(N*frac['Pg']))
+    Ngen_only = int(np.round(float(NPg)*frac['gen_only']))
+    Npd_ls_pg = int(np.round(float(NPg)*frac['Pd<Pg']))
+    Npd_gr_pg = NPg - (Ngen_only + Npd_ls_pg)
+    Nload_only= N - (Nint + NPg)
+    #Ninj = int(np.round(N*inj_frac))
+    #Ngen_only = int(np.round(float(Ninj)*gen_only_frac))
+    #Ngen_load = Ninj - Ngen_only
+    #Nload = N - (Nint + Ninj)
 
-    Nint = int(np.round(N*int_frac))
-    Ninj = int(np.round(N*inj_frac))
-    Ngen_only = int(np.round(float(Ninj)*gen_only_frac))
-    Ngen_load = Ninj - Ngen_only
-    Nload = N - (Nint + Ninj)
-
-    load = load_sample(Nload,vmax=load_params['vmax'],vmin=load_params['vmin'],\
+    load = load_sample(Nload_only,vmax=load_params['vmax'],vmin=load_params['vmin'],\
             dist=load_params['dist'],params=load_params['params'])
     
     gen_only = gen_sample(Ngen_only,vmax=gen_params['vmax'],vmin=gen_params['vmin'],\
             dist=gen_params['dist'],params=gen_params['params'])
     
-    gen_load = {}
-    gen_load['g'] = np.zeros(Ngen_load)
-    gen_load['d'] = np.zeros(Ngen_load)
-    for i in range(Ngen_load):
+    gen_load_pos = {}
+    gen_load_pos['g'] = np.zeros(Npd_ls_pg)
+    gen_load_pos['d'] = np.zeros(Npd_ls_pg)
+    for i in range(Npd_ls_pg):
         gtmp = gen_sample(1,vmax=gen_params['vmax'],vmin=gen_params['vmin'],\
             dist=gen_params['dist'],params=gen_params['params'])
         
         dtmp = None
-        while (dtmp is None) or (dtmp > gtmp):
+        while (dtmp is None) or (dtmp >= gtmp):
             dtmp = load_sample(1,vmax=load_params['vmax'],vmin=load_params['vmin'],\
                     dist=load_params['dist'],params=load_params['params'])
-        gen_load['g'][i] = gtmp
-        gen_load['d'][i] = dtmp
+        gen_load_pos['g'][i] = gtmp
+        gen_load_pos['d'][i] = dtmp
 
-    Pg = np.concatenate([np.zeros(Nint),np.zeros(Nload),gen_load['g'],gen_only])
-    Pd = np.concatenate([np.zeros(Nint),load,gen_load['d'],np.zeros(Ngen_only)])
+    gen_load_neg = {}
+    gen_load_neg['g'] = np.zeros(Npd_gr_pg)
+    gen_load_neg['d'] = np.zeros(Npd_gr_pg)
+    for i in range(Npd_gr_pg):
+        dtmp = load_sample(1,vmax=load_params['vmax'],vmin=load_params['vmin'],\
+                    dist=load_params['dist'],params=load_params['params'])
+        
+        gtmp = None
+        while (gtmp is None) or (gtmp >= dtmp):
+            gtmp = gen_sample(1,vmax=gen_params['vmax'],vmin=gen_params['vmin'],\
+                dist=gen_params['dist'],params=gen_params['params'])
+        gen_load_neg['g'][i] = gtmp
+        gen_load_neg['d'][i] = dtmp
 
-    Pg = injection_equalize(Pg,Pd,gen_params['vmax'],gen_params['vmin'])
-    return Pg,Pd
+    #Pg = np.concatenate([np.zeros(Nint),np.zeros(Nload),gen_load['g'],gen_only])
+    #Pd = np.concatenate([np.zeros(Nint),load,gen_load['d'],np.zeros(Ngen_only)])
+    Pg0 = np.concatenate([np.zeros(Nint), np.zeros(Nload_only), gen_load_neg['g'], gen_load_pos['g'], gen_only])
+    Pd0 = np.concatenate([np.zeros(Nint), load, gen_load_neg['d'], gen_load_pos['d'], np.zeros(Ngen_only)])
+    Pg, Pd = injection_equalize_optimization(Pg0, Pd0, gen_params, load_params)
+    return Pg, Pd, Pg0, Pd0
 
-def injection_equalize(Pg,Pd,vmax,vmin):
+def injection_equalize_optimization(Pg0,Pd0,gen_params,load_params):
+    Pg_non_zero = sum(Pg0>0)
+    Pd_non_zero = sum(Pd0>0)
+    Pg_dict = dict(zip(range(Pg_non_zero),np.where(Pg0>0)[0]))
+    Pd_dict = dict(zip(range(Pd_non_zero),np.where(Pd0>0)[0]))
+    Pgmax = max(Pg0)
+    Pdmax = max(Pd0)
+    import gurobipy as gb
+    m = gb.Model()
+    
+    alpha_g = m.addVars(range(Pg_non_zero),lb=0)
+    alpha_d = m.addVars(range(Pd_non_zero),lb=0)
+    
+    m.addConstr(sum(alpha_g[i]*Pg0[Pg_dict[i]] for i in range(Pg_non_zero)) - 
+                  sum(alpha_d[i]*Pd0[Pd_dict[i]] for i in range(Pd_non_zero)) == 0)
+    m.addConstrs(alpha_g[i]*Pg0[Pg_dict[i]] >= gen_params['vmin'] for i in range(Pg_non_zero))
+    m.addConstrs(alpha_g[i]*Pg0[Pg_dict[i]] <= gen_params['vmax'] for i in range(Pg_non_zero))
+    m.addConstrs(alpha_d[i]*Pd0[Pd_dict[i]] >= load_params['vmin'] for i in range(Pd_non_zero))
+    m.addConstrs(alpha_d[i]*Pd0[Pd_dict[i]] <= load_params['vmax'] for i in range(Pd_non_zero))
+    
+    obj = gb.QuadExpr()
+    for i in alpha_g:
+        obj += (Pg0[Pg_dict[i]]/Pgmax)*(alpha_g[i]- 1)*(alpha_g[i] - 1)
+    for i in alpha_d:
+        obj += (Pd0[Pd_dict[i]]/Pdmax)*(alpha_d[i]- 1)*(alpha_d[i] - 1)
+    
+    m.setObjective(obj,gb.GRB.MINIMIZE)
+    m.optimize()
+
+    ag_dict = {v:alpha_g[k].X for k,v in Pg_dict.items()}
+    ad_dict = {v:alpha_d[k].X for k,v in Pd_dict.items()}
+    Pgnew = np.zeros(Pg0.shape)
+    for i in range(Pgnew.shape[0]):
+        try:
+            Pgnew[i] = Pg0[i]*ag_dict[i]
+        except KeyError:
+            Pgnew[i] = Pg0[i]
+    Pdnew = np.zeros(Pd0.shape)
+    for i in range(Pdnew.shape[0]):
+        try:
+            Pdnew[i] = Pd0[i]*ad_dict[i]
+        except KeyError:
+            Pdnew[i] = Pd0[i]
+    return Pgnew, Pdnew
+
+def injection_equalize(Pg,Pd,gen_params,load_params):
+    """ adjust generation and load to get sum of 0 total injections """
+    gen_bus = np.where(Pg > 0)[0]
+    load_bus= np.where(Pd > 0)[0]
+    epsilon_out = []
+    flag = False
+    while not flag:
+        flag = True
+        epsilon = np.sum(Pg - Pd)
+        epsilon_out.append(epsilon)
+        epsilon_per_bus = np.abs(epsilon)/(gen_bus.shape[0] + load_bus.shape[0])
+        for i in (set(gen_bus) | set(load_bus)):
+            if i in load_bus:
+                Pdnew = Pd[i] + np.sign(epsilon)*epsilon_per_bus
+                if (Pdnew < load_params['vmin']) or (Pdnew > load_params['vmax']):
+                    Pdnew = Pd[i]
+                    flag = False
+            else:
+                Pdnew = 0
+            if i in gen_bus:
+                Pgnew = Pg[i] - np.sign(epsilon)*epsilon_per_bus
+                if (Pgnew < gen_params['vmin']) or (Pgnew > gen_params['vmax']):
+                    Pgnew = Pg[i]
+                    flag = False
+            else:
+                Pgnew = 0
+            if np.sign(Pgnew - Pdnew) == np.sign(Pg[i] - Pd[i]):
+                Pg[i] = Pgnew
+                Pd[i] = Pdnew
+            else:
+                flag = False
+        epsilon_out.append(np.sum(Pg-Pd))
+    return Pg, Pd, epsilon_out   
+
+def injection_equalize_old(Pg,Pd,vmax,vmin):
     """ make sure total injections sums to 0"""
     if np.sum(Pg - Pd) > 0:
         gen_buses = np.where(Pg)[0] # indices of buses with generators
@@ -224,12 +328,14 @@ def get_b_from_dist(M,dist='gamma',params=None,vmin=-np.inf,vmax=np.inf):
     elif dist == 'exp':
         rv = stats.expon(*params)
         #x = stats.expon.rvs(*params,size=M)
-    elif dist == 'kde':
-        x = params.resample(size=M)
+    elif (dist == 'kde') or (dist == 'pchip'):
+        x = params.resample(size=M).squeeze()
         while np.any(x < vmin) or np.any(x > vmax):
             ids = np.where((x < vmin) | (x > vmax))[0]
             x = np.delete(x,ids)
-            tmp = params.resample(size=ids.shape[0])
+            tmp = params.resample(size=ids.shape[0]).squeeze()
+            if ids.shape[0] == 1:
+                tmp = np.array([tmp])
             x = np.concatenate((x,tmp))
     else:
         print('Only gamma, exp, and kde  distributions supported currently')
@@ -242,47 +348,29 @@ def get_b_from_dist(M,dist='gamma',params=None,vmin=-np.inf,vmax=np.inf):
             x[i] = xtmp
     return -1./x
 
-def analyze_power_statistics(Pg,Pd,print_out=True):
-    """ analyze the power injections and per unit reactance of a case 
-    assumes that Pg and Pd are the same size vectors """
-    Gnum = sum(Pg > 0)
-    p = Pg - Pd
-    frac = {}
-    vmin = {}
-    vmax = {}
-    vmin['Pg'] = min(Pg[Pg > 0])
-    vmax['Pg'] = max(Pg[Pg > 0])
-    vmin['Pd'] = min(Pd[Pd > 0])
-    vmax['Pd'] = max(Pd[Pd > 0])
-    frac['intermediate'] = sum(p == 0)/p.shape[0]
-    frac['net_inj'] = sum(p > 0)/p.shape[0]
-    frac['gen_only'] = sum((Pg > 0) & (Pd == 0))/Gnum
+class PchipDist(object):
+    def __init__(self,data,bins=None):
+        if bins is None:
+            bins = 'auto'
+        h = np.histogram(data, bins=bins, density=True)
+        cdf = np.cumsum(h[0]*np.diff(h[1]))
+        cdf[-1] = 1.
+        self.P = interpolate.PchipInterpolator(h[1],np.concatenate(([0.],cdf)))
+        self.mean = np.mean(data)
+        self.min = h[1][0]
+        self.max = h[1][-1]
 
-    g90per = np.percentile(Pg[Pg > 0],90)
-    corr_coeff, corr_coeff_pval = stats.pearsonr(Pg[Pg > 0],Pd[Pg > 0])
-    corr_coeff90, corr_coeff90_pval = stats.pearsonr(Pg[(Pg > 0) & (Pg < g90per)],Pd[(Pg > 0) & (Pg < g90per)])
+    def __call__(self,x):
+        return self.P(x)
 
-    Pgkde = kde_fit(Pg[Pg > 0])
-    Pdkde = kde_fit(Pd[Pd > 0])
-    if print_out:
-        for s in ['Pg','Pd']:
-            print("%0.3g <= %s <= %0.3g" %(vmin[s],s,vmax[s]))
-        for key,val in frac.items():
-            print("Percent %s nodes = %0.2f%%" %(key,val*100))
-        print("correlation between generation and load: %0.3g, p-value: %0.3g" %(corr_coeff, corr_coeff_pval))
-        print("correlation between 90%% of generation and load: %0.3g, p-value: %0.3f, 90th percentile of Pg: %0.3g" %(corr_coeff90, corr_coeff90_pval, g90per))
-    return {'frac':frac,'vmin':vmin,'vmax':vmax, 'Pgkde':Pgkde, 'Pdkde':Pdkde}
+    def pdf(self,x):
+        return self.P.derivative()(x)
 
-def analyze_reactance_statistics(x,print_out=True):
-    vmin = min(x)
-    vmax = max(x)
-    kde  = kde_fit(x)
-    if print_out:
-        print("%0.3g <= x <= %0.3g" %(vmin, vmax))
-    return {'vmax': vmax, 'vmin': vmin, 'kde':kde}
-
-def kde_fit(x):
-    """ returns a kde object fit to the values in x """
-    return stats.gaussian_kde(x)
-
-
+    def resample(self,size=1):
+        rvs = np.zeros(size)
+        for i in range(size):
+            Q = np.random.rand()
+            rvs[i] = optimize.brentq(lambda x: self.P(x) - Q, self.min, self.max)
+        if size == 1:
+            rvs = rvs[0]
+        return rvs

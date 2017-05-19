@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 import pandas as pd
 import numpy as np
 import networkx as nx
@@ -11,6 +12,9 @@ import helpers
 from helpers import get_permutation, model_status, load_data, power_injections 
 from helpers import injection_sample, get_b_from_dist
 
+def timestamp():
+    return datetime.now().strftime('%d-%m-%Y_%H%M')
+
 def main(savename, fdata, method='ph', mode='synth'):
     """
         modes:
@@ -19,6 +23,7 @@ def main(savename, fdata, method='ph', mode='synth'):
             pbsyth: synthetic injections and impednce, still real topology
             synth: everyting synthetic
     """
+    start = time.time()
     FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
     logging.basicConfig(format=FORMAT,level=logging.INFO,datefmt='%H:%M:%S')
     ###### Topological data ###########
@@ -49,14 +54,18 @@ def main(savename, fdata, method='ph', mode='synth'):
         #gen_params  = {'vmax':2.5e3,'vmin':0.1,'dist':'exp',    'params':77.86}
         #load_params = {'vmax':365,  'vmin':0.1,'dist':'lognorm','params':(2.247,0.8737)}
         #Pg,Pd = injection_sample(G.number_of_nodes(),int_frac=0.23,inj_frac=0.053,gen_only_frac=0.03,gen_params=gen_params,load_params=load_params)
-        fitp = pickle.load(open('./cases/polish2383_wp_power_kdefit.pkl','rb'))
-        gen_params  = {'vmax': fitp['vmax']['Pg'], 'vmin': fitp['vmin']['Pg'], 'dist': 'kde', 'params': fitp['Pgkde']}
-        load_params = {'vmax': fitp['vmax']['Pd'], 'vmin': fitp['vmin']['Pd'], 'dist': 'kde', 'params': fitp['Pdkde']}
-        Pg,Pd = injection_sample(G.number_of_nodes(),int_frac=fitp['frac']['intermediate'],
-                inj_frac=fitp['frac']['net_inj'],gen_only_frac=fitp['frac']['gen_only'],
-                gen_params=gen_params,load_params=load_params)
+        Pgfit   = pickle.load(open('./cases/polish2383_wp_power_Pg_pchipfit.pkl','rb'))
+        Pdfit   = pickle.load(open('./cases/polish2383_wp_power_Pd_pchipfit.pkl','rb'))
+        Fracfit = pickle.load(open('./cases/polish2383_wp_power_frac.pkl','rb'))
+        gen_params  = {'vmax': Pgfit['vmax'], 'vmin': Pgfit['vmin'], 'dist': 'pchip', 'params': Pgfit['pchip']}
+        load_params = {'vmax': Pdfit['vmax'], 'vmin': Pdfit['vmin'], 'dist': 'pchip', 'params': Pdfit['pchip']}
+        Pg,Pd,Pg0,Pd0 = injection_sample(G.number_of_nodes(), frac=Fracfit, gen_params=gen_params, load_params=load_params)
         p = (Pg - Pd)/100
         p_in = dict(zip(range(G.number_of_nodes()),p))
+    logging.info('%0.3f <= Pg <= %0.3f', min(Pg[Pg>0]), max(Pg[Pg>0]))
+    logging.info('%0.3f <= Pd <= %0.3f', min(Pd[Pd>0]), max(Pd[Pd>0]))
+    logging.info('sum(Pg - Pd) = %0.3g', sum(Pg - Pd))
+    logging.info('intermediate: %0.1f%%, Pg>Pd %0.1f%%, gen_only: %0.1f%%',100*sum((Pg == 0) & (Pd == 0))/Pd.shape[0], 100*sum(((Pg-Pd) > 0) & (Pd != 0))/sum(Pg>0), 100*sum((Pg > 0) & (Pd == 0))/sum(Pg > 0) )
 
     ######## susceptances #########
     if mode == 'real':
@@ -65,10 +74,11 @@ def main(savename, fdata, method='ph', mode='synth'):
     else:
         #b = get_b_from_dist(branch_num,dist='gamma',params=(1.88734, 0, 0.05856)) 
         #b = get_b_from_dist(G.number_of_edges(),dist='exp',params=(0,0.041),vmin=1e-4,vmax=0.4632) 
-        fitb = pickle.load(open('./cases/polish2383_wp_reactance_kdefit.pkl','rb'))
-        b = get_b_from_dist(G.number_of_edges(), dist='kde', params=fitb['kde'], vmin=fitb['vmin'], vmax=fitb['vmax']) 
+        fitb = pickle.load(open('./cases/polish2383_wp_reactance_pchipfit.pkl','rb'))
+        b = get_b_from_dist(G.number_of_edges(), dist='kde', params=fitb['pchip'], vmin=fitb['vmin'], vmax=fitb['vmax']) 
         b_in = dict(zip(range(G.number_of_edges()),b))
-
+    
+    pickle.dump((Pg,Pd,-1/b,Pg0,Pd0),open('algorithm_inputs_' + timestamp() + '.pkl', 'wb')) 
     ####### constant inputs #########
     balance_epsilon = 1e-4
     delta_max = 60.0*np.pi/180.0
@@ -241,7 +251,14 @@ def main(savename, fdata, method='ph', mode='synth'):
     pf, Gpf = asg.DC_powerflow((Pg_out - Pd_out)/100, b_out, f_node, t_node, ref)
     saveparts = savename.split('.') 
     pickle.dump({'Pg': Pg_out, 'Pd': Pd_out, 'b': b_out, 'G': Gpf, 'pf': pf, 'ref': ref},
-            open(saveparts[0] + datetime.now().strftime('%d-%m-%Y_%H%M') + saveparts[1],'wb'))
+            open(saveparts[0] + timestamp() + "." + saveparts[1],'wb'))
+    end = time.time()
+    seconds = int(end-start)
+    hrs = seconds//3600
+    seconds -= hrs*3600
+    minutes = seconds//60
+    seconds -= minutes*60
+    logging.info("Total time: %dhr %dmin %dsec",hrs,minutes,seconds)
 
 if __name__=='__main__':
     import sys
