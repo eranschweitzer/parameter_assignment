@@ -1,3 +1,4 @@
+import random
 import pandas as pd
 import numpy as np
 import networkx as nx
@@ -374,3 +375,17 @@ class PchipDist(object):
         if size == 1:
             rvs = rvs[0]
         return rvs
+
+def zone_power_sample(N, p_in, Mboundary, beta_max):
+    max_unbalance = Mboundary*beta_max
+    count = 0
+    while True:
+        ph = {k: p_in[k] for k in random.sample(list(p_in),N)}
+        if abs(sum([ph[i] for i in ph])) <= max_unbalance:
+            break
+        count += 1
+        if count > 250:
+            logging.info('Cannot create sufficiently balanced zone')
+            sys.exit(0)
+    return ph
+    

@@ -1,9 +1,10 @@
+import sys
+import itertools
 import gurobipy as gb
 import numpy as np
 from scipy import sparse
 import networkx as nx
 import logging
-import ipdb
 
 FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
 logging.basicConfig(format=FORMAT,level=logging.INFO,datefmt='%H:%M:%S')
@@ -53,6 +54,7 @@ class ZoneMILP(object):
         p = invars['p']
         b = invars['b']
         f_max = invars['f_max']
+        beta_max = invars['beta_max']
         delta_max = invars['delta_max']
         M = invars['M']
 
@@ -80,7 +82,7 @@ class ZoneMILP(object):
         self.m.setParam('LogToConsole',0)
         self.m.setParam('MIPGap',0.15)
         #self.m.setParam('SolutionLimit',5) #stop after this many solutions are found
-        self.m.setParam('TimeLimit', 300)
+        #self.m.setParam('TimeLimit', 300)
         self.m.setParam('MIPFocus',1)
         self.m.setParam('ImproveStartTime',60)
         self.m.setParam('Threads',60)
@@ -106,9 +108,9 @@ class ZoneMILP(object):
         self.f =     self.m.addVars(range(branch_num),lb=-f_max,ub=f_max,name="f")
         #print('Complete')
 
-        self.beta       = self.m.addVars(ebound_list, ub=f_max, lb=-f_max, name="beta")
-        self.beta_plus  = self.m.addVars(ebound_list,  ub=f_max, name="beta_plus")
-        self.beta_minus = self.m.addVars(ebound_list,  ub=f_max, name="beta_minus")
+        self.beta       = self.m.addVars(ebound_list, ub=beta_max, lb=-beta_max, name="beta")
+        self.beta_plus  = self.m.addVars(ebound_list,  ub=beta_max, name="beta_plus")
+        self.beta_minus = self.m.addVars(ebound_list,  ub=beta_max, name="beta_minus")
         #self.beta_plus  = self.m.addVars(ebound_list, range(2), ub=f_max, name="beta_plus")
         #self.beta_minus = self.m.addVars(ebound_list, range(2), ub=f_max, name="beta_minus")
    
@@ -132,61 +134,63 @@ class ZoneMILP(object):
         #################
         #print('Delta Constraints....',end="",flush=True)
         for u,v,l in G.edges_iter(data='id'): 
-            self.m.addConstr( ( self.theta[u] - self.theta[v] <=  delta_max),'delta_max[%s]' %(edge_mapping[l]) )
-            self.m.addConstr( ( self.theta[u] - self.theta[v] >= -delta_max),'delta_min[%s]' %(edge_mapping[l]) )
+            self.m.addConstr( ( self.theta[u] - self.theta[v] <=  delta_max), name='delta_max[%s]' %(edge_mapping[l]) )
+            self.m.addConstr( ( self.theta[u] - self.theta[v] >= -delta_max), name='delta_min[%s]' %(edge_mapping[l]) )
         #print('Complete.')
         #print('Flow Constraints...',end="",flush=True)
         for u,v,l in G.edges_iter(data='id'):
             for _,_,l_tilde in G.edges_iter(data='id'):
                 self.m.addConstr(
                    (self.f[edge_mapping[l]] + b[b_map[edge_mapping[l_tilde]]]*(self.theta[u] - self.theta[v]) + M*(1-self.Z[edge_mapping[l],edge_mapping[l_tilde]]) >= 0 ),
-                   "flow_1[%s,%s]" %(edge_mapping[l],edge_mapping[l_tilde]))
+                   name="flow_1[%s,%s]" %(edge_mapping[l],edge_mapping[l_tilde]))
                 self.m.addConstr(
                    (self.f[edge_mapping[l]] + b[b_map[edge_mapping[l_tilde]]]*(self.theta[u] - self.theta[v]) - M*(1-self.Z[edge_mapping[l],edge_mapping[l_tilde]]) <= 0 ),
-                   "flow_2[%s,%s]" %(edge_mapping[l],edge_mapping[l_tilde]))
+                   name="flow_2[%s,%s]" %(edge_mapping[l],edge_mapping[l_tilde]))
         #print('Complete.')
         #print('Balance Constraints...',end="",flush=True)
+        self.bound_const1 = {}
+        self.bound_const2 = {}
         for n in range(node_num):
             if n in boundary:
-                self.m.addConstr(
+                self.bound_const1[n] = self.m.addConstr(
                         ( sum(p[p_map[n_tilde]]*self.Pi[n,n_tilde] for n_tilde in range(node_num)) + \
                             sum(self.f[edge_mapping[l['id']]] for _,_,l in G.in_edges_iter([n],data='id')) - \
                             sum(self.f[edge_mapping[l]] for _,_,l in G.out_edges_iter([n],data='id')) + \
                             sum(self.beta[l] for l in ebound_map['in'][inv_node_map[n]]) - \
-                            sum(self.beta[l] for l in ebound_map['out'][inv_node_map[n]]) <= balance_epsilon),"balance1[%s]" %(n)
+                            sum(self.beta[l] for l in ebound_map['out'][inv_node_map[n]]) <= balance_epsilon), name="balance1[%s]" %(n)
                         )
-                self.m.addConstr(
+                self.bound_const2[n] = self.m.addConstr(
                         ( sum(p[p_map[n_tilde]]*self.Pi[n,n_tilde] for n_tilde in range(node_num)) + \
                             sum(self.f[edge_mapping[l['id']]] for _,_,l in G.in_edges_iter([n],data='id')) - \
                             sum(self.f[edge_mapping[l]] for _,_,l in G.out_edges_iter([n],data='id')) + \
                             sum(self.beta[l] for l in ebound_map['in'][inv_node_map[n]]) - \
-                            sum(self.beta[l] for l in ebound_map['out'][inv_node_map[n]]) >= balance_epsilon),"balance2[%s]" %(n)
+                            sum(self.beta[l] for l in ebound_map['out'][inv_node_map[n]]) >= balance_epsilon), name="balance2[%s]" %(n)
                         )
 
             else:
-                self.m.addConstr(
+                self.bound_const1[n] = self.m.addConstr(
                         ( sum(p[p_map[n_tilde]]*self.Pi[n,n_tilde] for n_tilde in range(node_num)) + \
                             sum(self.f[edge_mapping[l['id']]] for _,_,l in G.in_edges_iter([n],data='id')) - \
-                            sum(self.f[edge_mapping[l]] for _,_,l in G.out_edges_iter([n],data='id')) <= balance_epsilon),"balance1[%s]" %(n)
+                            sum(self.f[edge_mapping[l]] for _,_,l in G.out_edges_iter([n],data='id')) <= balance_epsilon), name="balance1[%s]" %(n)
                         )
-                self.m.addConstr(
+                self.bound_const2[n] = self.m.addConstr(
                         ( sum(p[p_map[n_tilde]]*self.Pi[n,n_tilde] for n_tilde in range(node_num)) + \
                                 sum(self.f[edge_mapping[l['id']]] for _,_,l in G.in_edges_iter([n],data='id')) - \
-                                sum(self.f[edge_mapping[l]] for _,_,l in G.out_edges_iter([n],data='id')) >= -balance_epsilon),"balance2[%s]" %(n)
+                                sum(self.f[edge_mapping[l]] for _,_,l in G.out_edges_iter([n],data='id')) >= -balance_epsilon), name="balance2[%s]" %(n)
                         )
         #print('Complete.')
         #print('Permutation Constraints...',end="",flush=True)
-        self.m.addConstrs( (self.Pi.sum(n,'*') == 1 for n in range(node_num)),"Pi_rows")
-        self.m.addConstrs( (self.Pi.sum('*',n) == 1 for n in range(node_num)),"Pi_cols")
-        self.m.addConstrs( (self.Z.sum(l,'*')  == 1 for l in range(branch_num)),"Z_rows")
-        self.m.addConstrs( (self.Z.sum('*',l)  == 1 for l in range(branch_num)),"Z_cols")
+        self.m.addConstrs( (self.Pi.sum(n,'*') == 1 for n in range(node_num)),   name="Pi_rows")
+        self.m.addConstrs( (self.Pi.sum('*',n) == 1 for n in range(node_num)),   name="Pi_cols")
+        self.m.addConstrs( (self.Z.sum(l,'*')  == 1 for l in range(branch_num)), name="Z_rows")
+        self.m.addConstrs( (self.Z.sum('*',l)  == 1 for l in range(branch_num)), name="Z_cols")
         #print('Complete.')
         #print('Slack Constraints...',end="",flush=True)
         for u,v,l in G.edges_iter(data='id'):
-            self.m.addConstr( (self.s[edge_mapping[l]] + (self.theta[u] - self.theta[v]) >= 0 ),"slack_1[%s]" %(edge_mapping[l]))
-            self.m.addConstr( (self.s[edge_mapping[l]] - (self.theta[u] - self.theta[v]) >= 0 ),"slack_2[%s]" %(edge_mapping[l]))
-        self.m.addConstrs( (self.beta_plus[l]  >=  self.beta[l] for l in self.beta.keys()), "bp_slack")
-        self.m.addConstrs( (self.beta_minus[l] >= -self.beta[l] for l in self.beta.keys()), "bm_slack")
+            self.m.addConstr( (self.s[edge_mapping[l]] + (self.theta[u] - self.theta[v]) >= 0 ), name="slack_1[%s]" %(edge_mapping[l]))
+            self.m.addConstr( (self.s[edge_mapping[l]] - (self.theta[u] - self.theta[v]) >= 0 ), name="slack_2[%s]" %(edge_mapping[l]))
+        self.bp_slack = self.m.addConstrs( (self.beta_plus[l]  >=  self.beta[l] for l in self.beta.keys()), name="bp_slack")
+        self.bm_slack = self.m.addConstrs( (self.beta_minus[l] >= -self.beta[l] for l in self.beta.keys()), name="bm_slack")
         #print('Complete.')
 
         #### don't allow zeros load on degree 1 nodes #####
@@ -196,7 +200,7 @@ class ZoneMILP(object):
             if deg == 1:
                 if i not in boundary:
                     for j in np.where(np.array([p[p_map[n]] for n in range(node_num)]) == 0)[0]:
-                        self.m.addConstr(self.Pi[i,j] == 0,name="deg_one[%s,%s]" %(i,j))
+                        self.m.addConstr(self.Pi[i,j] == 0, name="deg_one[%s,%s]" %(i,j))
         #print('Complete.')
 
         ## Initialze weights
@@ -204,6 +208,7 @@ class ZoneMILP(object):
         self.w = {e: 0 for e in ebound_list}
 
         ### save a few more variables for later
+        self.G             = G
         self.node_num      = node_num 
         self.branch_num    = branch_num 
         self.node_mapping  = node_mapping 
@@ -211,11 +216,17 @@ class ZoneMILP(object):
         self.edge_mapping  = edge_mapping 
         self.inv_edge_map  = inv_edge_map
         self.p_map         = p_map
+        self.p             = p
         self.b_map         = b_map
+        self.b             = b
         self.boundary      = boundary 
         self.ebound_list   = ebound_list
+        self.ebound_map    = ebound_map
         self.mismatch      = mismatch 
-        self.pl_delta      = f_max/4   #delta variable for piecewise linear approximation to quadratic penalty
+        self.f_max         = f_max
+        self.delta_max     = delta_max
+        self.Pg            = invars['Pg']
+        self.Pd            = invars['Pd']
 
     def ph_objective_update(self,beta_bar,rho):
         node_mapping = self.node_mapping
@@ -313,7 +324,115 @@ class ZoneMILP(object):
         #    else:
         #        self.Pi[i,j].start = 0
 
+    def fix_beta(self,beta_bar):
+        """ fix beta values, remove the beta slack variables and related constraints"""
+        for l in self.beta.keys():
+            ## fix beta value
+            self.beta[l].lb = beta_bar[l]
+            self.beta[l].ub = beta_bar[l]
+            ## remove constraints
+            #self.m.remove(self.m.getConstrByName("bp_slack[%s]" %(l)))
+            #self.m.remove(self.m.getConstrByName("bm_slack[%s]" %(l)))
+            self.m.remove(self.bp_slack[l])
+            self.m.remove(self.bm_slack[l])
+            ## remove beta_plus and minus
+            self.m.remove(self.beta_plus[l])
+            self.m.remove(self.beta_minus[l])
+
+    def add_balance_slack(self):
+        """ add slack variables to balance constraints """
+        #constr_list =  [self.m.getConstrByName("balance1[%s]" %(i)) for i in range(self.node_num)]
+        #constr_list += [self.m.getConstrByName("balance2[%s]" %(i)) for i in range(self.node_num)]
+        constr_list =  [self.bound_const1[i] for i in range(self.node_num)]
+        constr_list += [self.bound_const2[i] for i in range(self.node_num)]
+        self.slack1 = {}; self.slack2= {};
+        for n in range(self.node_num):
+            self.slack1[n] = self.m.addVar(column=gb.Column(coeffs=[ 1 for i in range(2)], constrs=[self.bound_const1[n], self.bound_const2[n]]), name="slack1[%s]" %(n)) 
+            self.slack2[n] = self.m.addVar(column=gb.Column(coeffs=[-1 for i in range(2)], constrs=[self.bound_const1[n], self.bound_const2[n]]), name="slack2[%s]" %(n)) 
+
+
+    def balance_slack_objective(self,penalty):
+        obj = self.s.sum('*')
+        for n in range(self.node_num):
+            #obj += penalty*(self.slack1[n]*self.slack1[n] + self.slack2[n]*self.slack2[n])
+            obj += penalty*(self.slack1[n] + self.slack2[n])
+        self.m.setObjective(obj, gb.GRB.MINIMIZE)
+
+    def fixed_beta(self,beta_bar,gen_params,load_params):
+        m = gb.Model()
+        m.setParam('LogFile','/tmp/GurobiZone.log')
+        m.setParam('LogToConsole',0)
+        m.setParam('MIPGap',0.15)
+        m.setParam('Threads',60)
         
+        Pg_non_zero = {i for i in range(self.node_num) if self.Pg[self.p_out[self.inv_node_map[i]]] != 0}
+        Pd_non_zero = {i for i in range(self.node_num) if self.Pd[self.p_out[self.inv_node_map[i]]] != 0}
+
+        #### Variables#######
+        alpha = m.addVars(range(self.node_num),lb=0,name="alpha")
+        theta = m.addVars(range(self.node_num),lb=-3.14,ub=3.14,name="theta")
+        s =     m.addVars(range(self.branch_num),name="s")
+        f =     m.addVars(range(self.branch_num),lb=-self.f_max,ub=self.f_max,name="f")
+
+        ### Constraints ####
+        for u,v,l in self.G.edges_iter(data='id'): 
+            m.addConstr( (theta[u] - theta[v] <=  self.delta_max), name='delta_max[%s]' %(self.edge_mapping[l]) )
+            m.addConstr( (theta[u] - theta[v] >= -self.delta_max), name='delta_min[%s]' %(self.edge_mapping[l]) )
+            m.addConstr( (f[self.edge_mapping[l]] + self.b[self.b_out[l]]*(theta[u] - theta[v]) == 0), name='flow[%s]' %(self.edge_mapping[l]))
+            m.addConstr( (s[self.edge_mapping[l]] + (theta[u] - theta[v]) >= 0 ), name="slack_1[%s]" %(self.edge_mapping[l]))
+            m.addConstr( (s[self.edge_mapping[l]] - (theta[u] - theta[v]) >= 0 ), name="slack_2[%s]" %(self.edge_mapping[l]))
+
+        for n in range(self.node_num):
+            if n in self.boundary:
+                m.addConstr(
+                        (  alpha[n]*self.p[self.p_out[self.inv_node_map[n]]] + \
+                            sum(f[self.edge_mapping[l['id']]] for _,_,l in self.G.in_edges_iter([n],data='id')) - \
+                            sum(f[self.edge_mapping[l]] for _,_,l in self.G.out_edges_iter([n],data='id')) + \
+                            sum(beta_bar[l] for l in self.ebound_map['in' ][self.inv_node_map[n]]) - \
+                            sum(beta_bar[l] for l in self.ebound_map['out'][self.inv_node_map[n]]) == 0), name="balance[%s]" %(n)
+                        )
+            else:
+                m.addConstr(
+                        (  alpha[n]*self.p[self.p_out[self.inv_node_map[n]]] + \
+                            sum(f[self.edge_mapping[l['id']]] for _,_,l in self.G.in_edges_iter([n],data='id')) - \
+                            sum(f[self.edge_mapping[l]] for _,_,l in self.G.out_edges_iter([n],data='id')) == 0), name="balance[%s]" %(n)
+                        )
+
+        m.addConstrs((alpha[i]*self.Pg[self.p_out[self.inv_node_map[i]]] >= gen_params['vmin']  for i in Pg_non_zero), name="Pgmin")
+        m.addConstrs((alpha[i]*self.Pg[self.p_out[self.inv_node_map[i]]] <= gen_params['vmax']  for i in Pg_non_zero), name="Pgmax")
+        m.addConstrs((alpha[i]*self.Pd[self.p_out[self.inv_node_map[i]]] >= load_params['vmin'] for i in Pd_non_zero), name="Pdmin")
+        m.addConstrs((alpha[i]*self.Pd[self.p_out[self.inv_node_map[i]]] <= load_params['vmax'] for i in Pd_non_zero), name="Pdmax")
+
+        ### objective ###
+        pmax = abs(max(self.p.values(), key=lambda x: abs(x)))
+        obj = gb.QuadExpr()
+        for i in alpha:
+            obj += (abs(self.p[self.p_out[self.inv_node_map[i]]])/pmax)*(alpha[i]- 1)*(alpha[i] - 1)
+        
+        m.setObjective(obj,gb.GRB.MINIMIZE)
+        m.write('zone%d_fixed_beta.lp' %(self.zone))
+        m.optimize()
+        if m.status == 2:
+            # return dictionary keyed by node number and with values the multiple for the injection vector
+            alpha_out = {self.inv_node_map[i]: alpha[i].X if alpha[i].X > 0 else 1.0 for i in alpha}
+            logging.info("Model solved successfully: objective: %0.3f, mean(alpha) = %0.3f, max(alpha) = %0.3f, min(alpha) = %0.3f", 
+                    m.objVal,np.mean(list(alpha_out.values())), max(alpha_out.values()), min(alpha_out.values()))
+            self.alpha_out = alpha_out
+        else:
+            logging.info("Model solved unsuccessfuly with status %d", m.status)
+            sys.exit(0)
+
+    @property
+    def total_slack(self):
+        out =  sum(self.slack1[i].X for i in range(self.node_num))
+        out += sum(self.slack2[i].X for i in range(self.node_num))
+        return out
+
+    @property
+    def slack_stat(self):
+        out = [self.slack1[i].X if self.slack1[i].X != 0 else self.slack2[i].X for i in range(self.node_num)]
+        return {'mean': np.mean(out), 'std': np.std(out)}
+
     @property
     def beta_val(self):
         if self._beta is None: 
@@ -353,21 +472,22 @@ class ZoneMILP(object):
                 self._theta[self.inv_node_map[i]] = self.theta[i].X
         return self._theta
 
-def full_MILP(invars,zone=False,logfile=None):
-    """
-        Needed inputs:
-        node_num: the number of nodes in the system
-        branch_num: the number of branches in the sytem
-        p: vector of power injections (not ordered) (in per unit)
-        b: vector of branch susceptances (not ordered) (in per unit)
-        incident_lines: list of lines incident on each node (dictionary)
-        fn,tn: map from branch to from node or to node respectively
-        f_max: maximum allowable flow on a line anywhere
-        delta_max: maximum allowable angle difference
-        M: large number of the disjunctive constraints
-        deg_one: list of nodes that have degree one
-    """
-    ######### Re-introduce variables #######
+
+    
+
+    
+
+def intertie_suceptance_assign(invars):
+    m = gb.Model()
+    m.setParam('LogFile','/tmp/GurobiZone.log')
+    m.setParam('LogToConsole',0)
+    m.setParam('MIPGap',0.15)
+    #m.setParam('SolutionLimit',5) #stop after this many solutions are found
+    #m.setParam('TimeLimit', 500)
+    m.setParam('MIPFocus',1)
+    m.setParam('Threads',60)
+
+    ### data #####
     balance_epsilon = invars['balance_epsilon']
     G = invars['G']
     p = invars['p']
@@ -375,351 +495,60 @@ def full_MILP(invars,zone=False,logfile=None):
     f_max = invars['f_max']
     delta_max = invars['delta_max']
     M = invars['M']
+    edge_boundary = invars['edge_boundary']
     node_num = G.number_of_nodes()
     branch_num = G.number_of_edges()
-    if zone:
-        node_mapping = invars['n_map']
-        edge_mapping = invars['e_map']
-        boundary = [node_mapping[i] for i in invars['boundary']]
-        G = nx.relabel_nodes(G,node_mapping,copy=True)
-        mismatch = np.abs(np.sum(p))
-    else:
-        edge_mapping = dict(zip(range(branch_num),range(branch_num)))
-        boundary = []
-
-    ######## Create Model ########
-    m = gb.Model()
-    if logfile is not None:
-        m.setParam('LogFile',logfile)
-    m.setParam('LogToConsole',0)
-    m.setParam('MIPGap',1e-1)
-    m.setParam('SolutionLimit',5) #stop after this many solutions are found
-    m.setParam('MIPFocus',3)
-    m.setParam('Threads',60)
-
-    ################
-    # Variables
-    ################
-    print('Creating Pi variable....',end="",flush=True)
-    Pi = m.addVars(range(node_num),range(node_num),vtype=gb.GRB.BINARY,name="Pi")
-    print('Complete.')
-    print('Creating Z variable....',end="",flush=True)
-    Z = m.addVars(range(branch_num),range(branch_num),vtype=gb.GRB.BINARY,name="Z")
-    print('Complete.')
-    print('Creating theta variable...',end="",flush=True)
+    
+    ###### Variables ##########
+    Z     = m.addVars(edge_boundary,edge_boundary,vtype=gb.GRB.BINARY,name="Z")
     theta = m.addVars(range(node_num),lb=-3.14,ub=3.14,name="theta")
-    print('Complete.')
-    print('Creating s variable...',end="",flush=True)
-    s = m.addVars(range(branch_num),name="s")
-    print('Complete.')
-    print('creating f variable...',end="",flush=True)
-    f = m.addVars(range(branch_num),lb=-f_max,ub=f_max,name="f")
-    print('Complete')
+    s     = m.addVars(range(branch_num),name="s")
+    #f     = m.addVars(range(branch_num),lb=-f_max,ub=f_max,name="f")
+    f     = m.addVars(range(branch_num), 
+            lb=[-f_max[0] if l not in edge_boundary else -f_max[1] for l in range(branch_num)],
+            ub=[ f_max[0] if l not in edge_boundary else  f_max[1] for l in range(branch_num)],
+            name = "f")
 
-    if zone:
-        beta_plus = m.addVars(boundary,ub=f_max,name="beta_plus")
-        beta_minus = m.addVars(boundary,ub=f_max,name="beta_minus")
-   
-    #################
-    # Objective
-    ################
-    print('Setting objective...',end="",flush=True)
-    obj = s.sum('*')
-    if zone:
-        obj += max(1,mismatch)*beta_plus.sum('*')
-        obj += max(1,mismatch)*beta_minus.sum('*')
-    m.setObjective(obj,gb.GRB.MINIMIZE) 
-    print('Complete.')
-
-    ##################
-    # Constraints
-    #################
-    print('Delta Constraints....',end="",flush=True)
-    for u,v,l in G.edges_iter(data='id'): 
-        m.addConstr( ( theta[u] - theta[v] <= delta_max),'delta_max[%s]' %(edge_mapping[l]) )
-        m.addConstr( ( theta[u] - theta[v] >= -delta_max),'delta_min[%s]' %(edge_mapping[l]) )
-    print('Complete.')
-    print('Flow Constraints...',end="",flush=True)
+    ###### line flow constraints ######## 
     for u,v,l in G.edges_iter(data='id'):
-        for _,_,l_tilde in G.edges_iter(data='id'):
-            m.addConstr(
-               (f[edge_mapping[l]] + b[edge_mapping[l_tilde]]*(theta[u] - theta[v]) + M*(1-Z[edge_mapping[l],edge_mapping[l_tilde]]) >= 0 ),
-               "flow_1[%s,%s]" %(edge_mapping[l],edge_mapping[l_tilde]))
-            m.addConstr(
-               (f[edge_mapping[l]] + b[edge_mapping[l_tilde]]*(theta[u] - theta[v]) - M*(1-Z[edge_mapping[l],edge_mapping[l_tilde]]) <= 0 ),
-               "flow_2[%s,%s]" %(edge_mapping[l],edge_mapping[l_tilde]))
-    print('Complete.')
-    print('Balance Constraints...',end="",flush=True)
-    for n in range(node_num):
-        if n in boundary:
-            m.addConstr(
-                    ( sum(p[n_tilde]*Pi[n,n_tilde] for n_tilde in range(node_num)) + \
-                        sum(f[edge_mapping[l['id']]] for _,_,l in G.in_edges_iter([n],data='id')) - \
-                        sum(f[edge_mapping[l]] for _,_,l in G.out_edges_iter([n],data='id')) + \
-                        beta_plus[n] - beta_minus[n] <= balance_epsilon),"balance1[%s]" %(n)
-                    )
-            m.addConstr(
-                    ( sum(p[n_tilde]*Pi[n,n_tilde] for n_tilde in range(node_num)) + \
-                            sum(f[edge_mapping[l['id']]] for _,_,l in G.in_edges_iter([n],data='id')) - \
-                            sum(f[edge_mapping[l]] for _,_,l in G.out_edges_iter([n],data='id')) + \
-                            beta_plus[n] - beta_minus[n] >= -balance_epsilon),"balance2[%s]" %(n)
-                    )
-
+        m.addConstr( ( theta[u] - theta[v] <=  delta_max),'delta_max[%s]' %(l) )
+        m.addConstr( ( theta[u] - theta[v] >= -delta_max),'delta_min[%s]' %(l) )
+        if l in edge_boundary:
+            for l_tilde in edge_boundary:
+                m.addConstr(f[l] + b[l_tilde]*(theta[u] - theta[v]) + M*(1-Z[l,l_tilde]) >= 0 )
+                m.addConstr(f[l] + b[l_tilde]*(theta[u] - theta[v]) - M*(1-Z[l,l_tilde]) <= 0 )
         else:
-            m.addConstr(
-                    ( sum(p[n_tilde]*Pi[n,n_tilde] for n_tilde in range(node_num)) + \
-                        sum(f[edge_mapping[l['id']]] for _,_,l in G.in_edges_iter([n],data='id')) - \
-                        sum(f[edge_mapping[l]] for _,_,l in G.out_edges_iter([n],data='id')) <= balance_epsilon),"balance1[%s]" %(n)
-                    )
-            m.addConstr(
-                    ( sum(p[n_tilde]*Pi[n,n_tilde] for n_tilde in range(node_num)) + \
-                            sum(f[edge_mapping[l['id']]] for _,_,l in G.in_edges_iter([n],data='id')) - \
-                            sum(f[edge_mapping[l]] for _,_,l in G.out_edges_iter([n],data='id')) >= -balance_epsilon),"balance2[%s]" %(n)
-                    )
-    print('Complete.')
-    print('Permutation Constraints...',end="",flush=True)
-    m.addConstrs( (Pi.sum(n,'*') == 1 for n in range(node_num)),"Pi_rows")
-    m.addConstrs( (Pi.sum('*',n) == 1 for n in range(node_num)),"Pi_cols")
-    m.addConstrs( (Z.sum(l,'*') == 1 for l in range(branch_num)),"Z_rows")
-    m.addConstrs( (Z.sum('*',l) == 1 for l in range(branch_num)),"Z_cols")
-    print('Complete.')
-    print('Slack Constraints...',end="",flush=True)
+            m.addConstr(f[l] + b[l]*(theta[u] - theta[v]) == 0)
+
+    ###### Node Balance constraints #####
+    m.addConstrs(
+            ( p[n] + sum(f[l['id']] for _,_,l in G.in_edges_iter([n],data='id')) - \
+                sum(f[l] for _,_,l in G.out_edges_iter([n],data='id')) <= balance_epsilon for n in range(node_num)),"balance1"
+            )
+    m.addConstrs(
+            ( p[n] + sum(f[l['id']] for _,_,l in G.in_edges_iter([n],data='id')) - \
+                sum(f[l] for _,_,l in G.out_edges_iter([n],data='id')) >= -balance_epsilon for n in range(node_num)),"balance1"
+            )
+    ######## permutation matrix constraints #############
+    m.addConstrs( (Z.sum(l,'*')  == 1 for l in edge_boundary),"Z_rows")
+    m.addConstrs( (Z.sum('*',l)  == 1 for l in edge_boundary),"Z_cols")
     for u,v,l in G.edges_iter(data='id'):
-        m.addConstr( (s[edge_mapping[l]] + (theta[u] - theta[v]) >= 0 ),"slack_1[%s]" %(edge_mapping[l]))
-        m.addConstr( (s[edge_mapping[l]] - (theta[u] - theta[v]) >= 0 ),"slack_2[%s]" %(edge_mapping[l]))
-    print('Complete.')
+        m.addConstr( (s[l] + f[l] >= 0 ),"slack_1[%s]" %(l))
+        m.addConstr( (s[l] - f[l] >= 0 ),"slack_2[%s]" %(l))
 
-    #### don't allow zeros load on degree 1 nodes #####
-    #### if zone then 0 on degree one is allowed if it is a boundary node
-    print('Degree one constraints...',end="",flush=True)
-    for i,deg in G.degree_iter():
-        if deg == 1:
-            if i not in boundary:
-                for j in np.where(p == 0)[0]:
-                    m.addConstr(Pi[i,j] == 0,name="deg_one[%s,%s]" %(i,j))
-    print('Complete.')
-
-    m.optimize()
-    return m
-
-def only_p(invars,set_start=False,logfile=None):
-    """
-        Needed inputs:
-        node_num: the number of nodes in the system
-        branch_num: the number of branches in the sytem
-        p: vector of power injections (not ordered) (in per unit)
-        b: vector of branch susceptances (not ordered) (in per unit)
-        incident_lines: list of lines incident on each node (dictionary)
-        fn,tn: map from branch to from node or to node respectively
-        f_max: maximum allowable flow on a line anywhere
-        delta_max: maximum allowable angle difference
-        M: large number of the disjunctive constraints
-        deg_one: list of nodes that have degree one
-    """
-    ######### Re-introduce variables #######
-    balance_epsilon = invars['balance_epsilon']
-    node_num = invars['node_num']
-    branch_num = invars['branch_num']
-    p = invars['p']
-    b = invars['b']
-    from_lines = invars['from_lines']
-    to_lines = invars['to_lines']
-    fn = invars['fn']
-    tn = invars['tn']
-    f_max = invars['f_max']
-    delta_max = invars['delta_max']
-    M = invars['M']
-    deg_one = invars['deg_one']
-
-    ######## Create Model ########
-    m = gb.Model()
-    if logfile is not None:
-        m.setParam('LogFile',logfile)
-    m.setParam('LogToConsole',0)
-    m.setParam('MIPGap',1e-1)
-    m.setParam('SolutionLimit',3) #stop after this many solutions are found
-    m.setParam('MIPFocus',3)
-    m.setParam('Threads',60)
-
-    ################
-    # Variables
-    ################
-    print('Creating Pi variable....',end="",flush=True)
-    Pi = m.addVars(range(node_num),range(node_num),vtype=gb.GRB.BINARY,name="Pi")
-    print('Complete.')
-    print('Creating theta variable...',end="",flush=True)
-    theta = m.addVars(range(node_num),lb=-3.14,ub=3.14,name="theta")
-    print('Complete.')
-    print('Creating s variable...',end="",flush=True)
-    s = m.addVars(range(branch_num),name="s")
-    print('Complete.')
-    print('creating f variable...',end="",flush=True)
-    f = m.addVars(range(branch_num),lb=-f_max,ub=f_max,name="f")
-    print('Complete')
-    
-    if set_start:
-        for i,j in Pi:
-            if i == j:
-                Pi[i,j].start = 1
-            else:
-                Pi[i,j].start = 0
-        for l in range(branch_num):
-            f[l].start = invars['flow'][l]
-            s[l].start = invars['slack'][l]
-        for i in range(node_num):
-            theta[i].start = invars['theta'][i]
-
-    #################
-    # Objective
-    ################
-    print('Setting objective...',end="",flush=True)
+    ####### Objective ############
     m.setObjective(s.sum('*'),gb.GRB.MINIMIZE) 
-    print('Complete.')
-
-    ##################
-    # Constraints
-    #################
-    print('Delta Constraints....',end="",flush=True)
-    m.addConstrs( ( theta[fn[l]] - theta[tn[l]] <= delta_max for l in range(branch_num)),'delta_max')
-    m.addConstrs( ( theta[fn[l]] - theta[tn[l]] >= -delta_max for l in range(branch_num)),'delta_min')
-    print('Complete.')
-    print('Flow Constraints...',end="",flush=True)
-    m.addConstrs(
-            (f[l] + b[l]*(theta[fn[l]] - theta[tn[l]]) == 0 for l in range(branch_num) ),"flow"
-            )
-    print('Complete.')
-    print('Balance Constraints...',end="",flush=True)
-    m.addConstrs(
-            ( sum(p[n_tilde]*Pi[n,n_tilde] for n_tilde in range(node_num)) + sum(f[l] for l in to_lines[n]) - sum(f[l] for l in from_lines[n]) <= balance_epsilon for n in range(node_num)),"balance1"
-            )
-    m.addConstrs(
-            ( sum(p[n_tilde]*Pi[n,n_tilde] for n_tilde in range(node_num)) + sum(f[l] for l in to_lines[n]) - sum(f[l] for l in from_lines[n]) >= -balance_epsilon for n in range(node_num)),"balance2"
-            )
-    print('Complete.')
-    print('Permutation Constraints...',end="",flush=True)
-    m.addConstrs( (Pi.sum(n,'*') == 1 for n in range(node_num)),"Pi_rows")
-    m.addConstrs( (Pi.sum('*',n) == 1 for n in range(node_num)),"Pi_cols")
-    print('Complete.')
-    print('Slack Constraints...',end="",flush=True)
-    m.addConstrs( (s[l] + (theta[fn[l]] - theta[tn[l]]) >= 0 for l in range(branch_num)),"slack_1")
-    m.addConstrs( (s[l] - (theta[fn[l]] - theta[tn[l]]) >= 0 for l in range(branch_num)),"slack_2")
-    print('Complete.')
-
-    #### don't allow zeros load on degree 1 nodes #####
-    print('Degree one constraints...',end="",flush=True)
-    for i in deg_one:
-        for j in np.where(p == 0)[0]:
-            m.addConstr(Pi[i,j] == 0,name="deg_one[%s,%s]" %(i,j))
-    print('Complete.')
 
     m.optimize()
-    return m
 
-def only_b(invars,set_start=False,logfile=None):
-    """
-        Needed inputs:
-        node_num: the number of nodes in the system
-        branch_num: the number of branches in the sytem
-        p: vector of power injections (not ordered) (in per unit)
-        b: vector of branch susceptances (not ordered) (in per unit)
-        incident_lines: list of lines incident on each node (dictionary)
-        fn,tn: map from branch to from node or to node respectively
-        f_max: maximum allowable flow on a line anywhere
-        delta_max: maximum allowable angle difference
-        M: large number of the disjunctive constraints
-        deg_one: list of nodes that have degree one
-    """
-    ######### Re-introduce variables #######
-    balance_epsilon = invars['balance_epsilon']
-    node_num = invars['node_num']
-    branch_num = invars['branch_num']
-    p = invars['p']
-    b = invars['b']
-    from_lines = invars['from_lines']
-    to_lines = invars['to_lines']
-    fn = invars['fn']
-    tn = invars['tn']
-    f_max = invars['f_max']
-    delta_max = invars['delta_max']
-    M = invars['M']
-    deg_one = invars['deg_one']
-
-    ######## Create Model ########
-    m = gb.Model()
-    if logfile is not None:
-        m.setParam('LogFile',logfile)
-    m.setParam('LogToConsole',0)
-    m.setParam('MIPGap',1e-1)
-    m.setParam('SolutionLimit',3) #stop after this many solutions are found
-    m.setParam('MIPFocus',3)
-    m.setParam('Threads',60)
-
-    ################
-    # Variables
-    ################
-    print('Creating Z variable....',end="",flush=True)
-    Z = m.addVars(range(branch_num),range(branch_num),vtype=gb.GRB.BINARY,name="Z")
-    print('Complete.')
-    print('Creating theta variable...',end="",flush=True)
-    theta = m.addVars(range(node_num),lb=-3.14,ub=3.14,name="theta")
-    print('Complete.')
-    print('Creating s variable...',end="",flush=True)
-    s = m.addVars(range(branch_num),name="s")
-    print('Complete.')
-    print('creating f variable...',end="",flush=True)
-    f = m.addVars(range(branch_num),lb=-f_max,ub=f_max,name="f")
-    print('Complete')
-    
-    if set_start:
-        for i,j in Z:
-            if i == j:
-                Z[i,j].start = 1
-            else:
-                Z[i,j].start = 0
-        for l in range(branch_num):
-            f[l].start = invars['flow'][l]
-            s[l].start = invars['slack'][l]
-        for i in range(node_num):
-            theta[i].start = invars['theta'][i]
-            
-    #################
-    # Objective
-    ################
-    print('Setting objective...',end="",flush=True)
-    m.setObjective(s.sum('*'),gb.GRB.MINIMIZE) 
-    print('Complete.')
-
-    ##################
-    # Constraints
-    #################
-    print('Delta Constraints....',end="",flush=True)
-    m.addConstrs( ( theta[fn[l]] - theta[tn[l]] <= delta_max for l in range(branch_num)),'delta_max')
-    m.addConstrs( ( theta[fn[l]] - theta[tn[l]] >= -delta_max for l in range(branch_num)),'delta_min')
-    print('Complete.')
-    print('Flow Constraints...',end="",flush=True)
-    m.addConstrs(
-            (f[l] + b[l_tilde]*(theta[fn[l]] - theta[tn[l]]) + M*(1-Z[l,l_tilde]) >= 0 for l in range(branch_num) for l_tilde in range(branch_num)),"flow_1"
-            )
-    m.addConstrs(
-            (f[l] + b[l_tilde]*(theta[fn[l]] - theta[tn[l]]) - M*(1-Z[l,l_tilde]) <= 0 for l in range(branch_num) for l_tilde in range(branch_num)),"flow_2"
-            )
-    print('Complete.')
-    print('Balance Constraints...',end="",flush=True)
-    m.addConstrs(
-            ( p[n] + sum(f[l] for l in to_lines[n]) - sum(f[l] for l in from_lines[n]) <= balance_epsilon for n in range(node_num)),"balance1"
-            )
-    m.addConstrs(
-            ( p[n] + sum(f[l] for l in to_lines[n]) - sum(f[l] for l in from_lines[n]) >= -balance_epsilon for n in range(node_num)),"balance2"
-            )
-    print('Complete.')
-    print('Permutation Constraints...',end="",flush=True)
-    m.addConstrs( (Z.sum(l,'*') == 1 for l in range(branch_num)),"Z_rows")
-    m.addConstrs( (Z.sum('*',l) == 1 for l in range(branch_num)),"Z_cols")
-    print('Complete.')
-    print('Slack Constraints...',end="",flush=True)
-    m.addConstrs( (s[l] + (theta[fn[l]] - theta[tn[l]]) >= 0 for l in range(branch_num)),"slack_1")
-    m.addConstrs( (s[l] - (theta[fn[l]] - theta[tn[l]]) >= 0 for l in range(branch_num)),"slack_2")
-    print('Complete.')
-
-    m.optimize()
-    return m
+    if m.solcount > 0:
+        print('max f: %0.3g' %(max([f[i].X for i in f]) ) )
+        print('max delta: %0.3g' %(max([abs(theta[u].X - theta[v].X) for u,v in G.edges_iter()]) ) )
+        bnew = b.copy()
+        for l,l_tilde in itertools.product(edge_boundary,edge_boundary):
+            if Z[l,l_tilde].X > 0.5:
+                bnew[l] = b[l_tilde]
+        return bnew
+    else:
+        logging.info('Solver exited with status %d and no solution', m.status)
+        sys.exit(0)

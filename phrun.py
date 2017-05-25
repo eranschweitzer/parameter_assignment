@@ -8,9 +8,9 @@ import logging
 import pprint
 import pickle
 from scipy import stats
-import helpers
+import helpers as hlp
 from helpers import get_permutation, model_status, load_data, power_injections 
-from helpers import injection_sample, get_b_from_dist
+from helpers import injection_sample, get_b_from_dist 
 
 def timestamp():
     return datetime.now().strftime('%d-%m-%Y_%H%M')
@@ -80,12 +80,13 @@ def main(savename, fdata, method='ph', mode='synth'):
     
     pickle.dump((Pg,Pd,-1/b,Pg0,Pd0),open('algorithm_inputs_' + timestamp() + '.pkl', 'wb')) 
     ####### constant inputs #########
-    balance_epsilon = 1e-4
-    delta_max = 60.0*np.pi/180.0
-    f_max = 10
-    M = f_max + delta_max*max(np.abs(b)) + 0.5 #plus half is out of precaution
+    balance_epsilon = 1e-6
+    slack_penalty   = 100
+    delta_max       = 60.0*np.pi/180.0
+    f_max           = 10
+    beta_max        = f_max*0.75
+    M               = f_max + delta_max*max(np.abs(b)) + 0.5 #plus half is out of precaution
     
-
     ####### optimization ##########
     import formulation as fm
     import zone_splitting as zp
@@ -104,20 +105,28 @@ def main(savename, fdata, method='ph', mode='synth'):
     nu_map = {}
     solvers = []
 
+    ####### Partition in Zones #############
     logging.info('Splitting graph into zones')
     zones, boundaries, eboundary_map = zp.get_zones(G,Nmax,Nmin)
-    logging.info('%d Zones created',len(zones))
+    zone_cnt = len(zones)
+    logging.info('%d Zones created',zone_cnt)
+    ##### sort based on number of boundary edges #####
+    boundary_edge_num  = {i:len(eboundary_map[i][1]) for i in range(zone_cnt)}
+    boundary_edge_sort = sorted(boundary_edge_num,key=boundary_edge_num.get)
+    zones         = [zones[i]         for i in boundary_edge_sort]
+    boundaries    = [boundaries[i]    for i in boundary_edge_sort]
+    eboundary_map = [eboundary_map[i] for i in boundary_edge_sort]
+
     for test in zones:
         if not nx.is_connected(nx.Graph(test)):
             import ipdb; ipdb.set_trace()
     boundary_edges,n2n = zp.boundary_edges(G,zones) 
-    #pickle.dump((zones,boundaries,boundary_edges,n2n),open('zone_dump.pkl','wb'))
     pickle.dump((zones, boundaries, eboundary_map,boundary_edges,n2n),open('zone_dump.pkl','wb'))
 
-    zone_cnt = len(zones)
     for i,(H,boundary,ebound) in enumerate(zip(zones,boundaries,eboundary_map)):
-        logging.info('Initializing Zone %d: nodes=%d, edges=%d', i, H.number_of_nodes(), H.number_of_edges())
-        ph = {k: p_in[k] for k in random.sample(list(p_in),H.number_of_nodes())}
+        logging.info('Initializing Zone %d: nodes=%d, edges=%d, boundary_edges=%d', i, H.number_of_nodes(), H.number_of_edges(), len(ebound[1]))
+        #ph = {k: p_in[k] for k in random.sample(list(p_in),H.number_of_nodes())}
+        ph = hlp.zone_power_sample(H.number_of_nodes(), p_in, len(ebound[1]), beta_max)
         bh = {k: b_in[k] for k in random.sample(list(b_in),H.number_of_edges())}
         for k in ph:
             p_in.pop(k)
@@ -125,12 +134,13 @@ def main(savename, fdata, method='ph', mode='synth'):
             b_in.pop(k)
 
         invars = {'G':H,'boundary':boundary, 'ebound':ebound,'p':ph,'b':bh,\
-                'M':M,'delta_max':delta_max,'f_max':f_max,'balance_epsilon':balance_epsilon}
+                'M':M, 'delta_max':delta_max,'f_max':f_max, 'beta_max':beta_max, 'balance_epsilon':balance_epsilon}
         solvers.append(fm.ZoneMILP(i,invars))
         
     logging.info('Remaining items in p_in: %d',len(p_in))
     logging.info('Remaining items in b_in: %d, number of boundary edges: %d', len(b_in), len(boundary_edges))
 
+    ########### Main Loop ###########
     iter = 0
     alpha_dim_iter = 1
     while True:
@@ -143,15 +153,15 @@ def main(savename, fdata, method='ph', mode='synth'):
         else:
             alpha = alpha0
             rho   = rho0
-        #    if max_beta_diff < alpha:
-        #        alpha_dim_iter += 1
-        #        alpha = alpha/np.sqrt(alpha_dim_iter)
         if method == 'lr':
             logging.info("Iteration %d starting: alpha = %0.3f", iter, alpha)
         elif method == 'ph':
             logging.info("Iteration %d starting: rho = %0.3f", iter, rho)
         for solver in solvers:
             logging.info("   Solving zone %d",solver.zone)
+            if iter == 1:
+                ### only apply time limit after the first iteration
+                solver.m.setParam('TimeLimit',300)
             solver.optimize()
             if solver.m.solcount == 0:
                 solver.m.setParam('TimeLimit','default')
@@ -170,12 +180,13 @@ def main(savename, fdata, method='ph', mode='synth'):
                 solver.m.setParam('TimeLimit',300)
             logging.info("      Solved with status %d, objective=%0.3f",solver.m.status,solver.m.objVal)
             beta[solver.zone] = solver.beta_val
-            #beta.update(solver.beta_val)
             for k,v in solver.beta_val.items():
                 if k not in beta_bar:
                     beta_bar[k] = v/2.
                 else:
                     beta_bar[k] += v/2.
+
+        ######### Determine Inter-Tie Errors #########
         for k in beta_bar.keys():
             z = np.where([k in beta[i].keys() for i in range(zone_cnt)])[0]
             zone_i = min(z); zone_j = max(z)
@@ -194,6 +205,7 @@ def main(savename, fdata, method='ph', mode='synth'):
         max_beta_diff  = max(beta_diff.values())
         logging.info("   GAP: %0.3f, MEAN beta_diff: %0.3f, MAX beta_diff: %0.3f", gap, mean_beta_diff, max_beta_diff)
 
+        ######## output of iteration variables ############
         wdump = {}
         pdump = {}
         bdump = {}
@@ -210,6 +222,7 @@ def main(savename, fdata, method='ph', mode='synth'):
         elif method == 'lr':
             pickle.dump((beta,beta_bar,beta_diff,nu,nu_map,pdump,bdump),open('iteration_%d_dump_%s.pkl' %(iter,method),'wb'))
 
+        ######### Terminatio Criteria ##########
         if (gap <= gapmax):
             logging.info("Stopping iteration: Gap tolerance reached")
             break
@@ -225,6 +238,34 @@ def main(savename, fdata, method='ph', mode='synth'):
 
         iter += 1
 
+    ###### fixed beta iteration ############
+    logging.info("Starting fixed-beta round")
+    beta_bar_final = {}
+    beta_final = {}
+    for solver in solvers:
+        logging.info("   Solving zone %d",solver.zone)
+        solver.fix_beta(beta_bar)
+        solver.add_balance_slack()
+        solver.balance_slack_objective(slack_penalty)
+        ### make sure there is a solution
+        solver.m.setParam('TimeLimit','default')
+        solver.optimize()
+        logging.info("      Solved with status %d, objective=%0.3f, total slack= %0.3f",solver.m.status,solver.m.objVal, solver.total_slack)
+        ### sanity check that the beta fixe worked
+        beta_final[solver.zone] = solver.beta_val
+        for k,v in solver.beta_val.items():
+            if k not in beta_bar_final:
+                beta_bar_final[k] = v/2.
+            else:
+                beta_bar_final[k] += v/2.
+
+    gap = 0
+    for z in beta_final:
+        for k,v in beta_final[z].items():
+            gap += np.abs(v - beta_bar_final[k])
+    logging.info("      Final Calculated GAP: %0.3g", gap)
+
+    ########## Get Final Power Assignment ###########
     p_out = {}
     b_out = {}
     theta_out = {}
@@ -232,7 +273,11 @@ def main(savename, fdata, method='ph', mode='synth'):
         p_out.update(solver.p_out)
         b_out.update(solver.b_out)
         theta_out.update(solver.theta_out)
-    
+
+    Pg_out = np.array([Pg[p_out[i]] for i in range(G.number_of_nodes())])
+    Pd_out = np.array([Pd[p_out[i]] for i in range(G.number_of_nodes())])
+
+    ####### Assign Susceptance to Inter-Tie Branches ###########
     edge_order = sorted(beta_bar,key=lambda x: abs(beta_bar[x]),reverse=True)
     b_order    = sorted(b_in,key=b_in.get)
     for l in edge_order:
@@ -242,13 +287,31 @@ def main(savename, fdata, method='ph', mode='synth'):
         import ipdb; ipdb.set_trace()
     if len(b_out) != G.number_of_edges():
         import ipdb; ipdb.set_trace()
-    Pg_out = np.array([Pg[p_out[i]] for i in range(G.number_of_nodes())])
-    Pd_out = np.array([Pd[p_out[i]] for i in range(G.number_of_nodes())])
     b_out  = np.array([b[b_out[i]]  for i in range(G.number_of_edges())])
 
+    ####### DC Powerflow ###########
     import assignment_analysis as asg
     ref = np.argmax((Pg_out - Pd_out)/100)
     pf, Gpf = asg.DC_powerflow((Pg_out - Pd_out)/100, b_out, f_node, t_node, ref)
+    logging.info('Max flow pre optimization: %0.3g', max(abs(pf['flows'])) )
+    logging.info('Max delta pre optimization: %0.3f degree, %0.3f rad', max(abs(pf['delta']))*180/np.pi, max(abs(pf['delta'])) )
+
+    saveparts = savename.split('.') 
+    pickle.dump({'Pg': Pg_out, 'Pd': Pd_out, 'b': b_out, 'G': Gpf, 'pf': pf, 'ref': ref},
+            open(saveparts[0] + "_noopt_" + timestamp() + "." + saveparts[1],'wb'))
+
+    if max(abs(pf['flows'])) > f_max:
+        M = max(abs(pf['flows'])) + max(max(abs(pf['delta'])), delta_max)*max(np.abs(b_out)) + 0.5 #plus half is out of precaution
+        invars = {'G':G,'p':(Pg_out-Pd_out)/100, 'b':b_out, 'edge_boundary':set(beta_bar.keys()), \
+                'f_max':[f_max, max(abs(pf['flows']))], 'M':M, 'balance_epsilon':balance_epsilon, 'delta_max': delta_max}
+        b_out = fm.intertie_suceptance_assign(invars)
+        
+        ##### Rerun DC powerflow ##############
+        pf, Gpf = asg.DC_powerflow((Pg_out - Pd_out)/100, b_out, f_node, t_node, ref)
+        logging.info('Max flow post optimization: %0.3g', max(abs(pf['flows'])) )
+        logging.info('Max delta post optimization: %0.3f degree, %0.3f rad', max(abs(pf['delta']))*180/np.pi, max(abs(pf['delta'])) )
+
+    ###### Saving and logging ######
     saveparts = savename.split('.') 
     pickle.dump({'Pg': Pg_out, 'Pd': Pd_out, 'b': b_out, 'G': Gpf, 'pf': pf, 'ref': ref},
             open(saveparts[0] + timestamp() + "." + saveparts[1],'wb'))
