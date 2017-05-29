@@ -79,7 +79,7 @@ def incident_lines_map(fn,tn,node_num):
     return from_lines,to_lines
 
 
-def power_injections(gen_data,bus_data):
+def power_injections(gen_data,bus_data,equalize=True):
     """ create the power injection vector defined as Pg - Pd
     IT IS ASSUMED THAT THE BUSES ARE ORDERD CONSECUTIVELY!!!
     """
@@ -90,18 +90,19 @@ def power_injections(gen_data,bus_data):
     Pg = np.zeros(bus_data.shape[0])
     for bus,v in zip(gen_data['GEN_BUS'],gen_data['PG']):
         Pg[bus] += v
-    # ensure that generation = loss (i.e. remove loss)
-    gen_buses = np.where(Pg)[0]
-    loss_flag = False
-    while not loss_flag:
-        loss_flag = True
-        losses = sum(Pg) - bus_data['PD'].sum()
-        loss_per_g = losses/gen_buses.shape[0]
-        for i in gen_buses:
-            if Pg[i] > loss_per_g:
-                Pg[i] -= loss_per_g
-            else:
-                loss_flag = False
+    if equalize:
+        # ensure that generation = loss (i.e. remove loss)
+        gen_buses = np.where(Pg)[0]
+        loss_flag = False
+        while not loss_flag:
+            loss_flag = True
+            losses = sum(Pg) - bus_data['PD'].sum()
+            loss_per_g = losses/gen_buses.shape[0]
+            for i in gen_buses:
+                if Pg[i] > loss_per_g:
+                    Pg[i] -= loss_per_g
+                else:
+                    loss_flag = False
 
     return Pg,bus_data['PD'].values
 
@@ -212,46 +213,70 @@ def injection_sample(N,frac=None,gen_params=None,load_params=None):
     return Pg, Pd, Pg0, Pd0
 
 def injection_equalize_optimization(Pg0,Pd0,gen_params,load_params):
-    Pg_non_zero = sum(Pg0>0)
-    Pd_non_zero = sum(Pd0>0)
-    Pg_dict = dict(zip(range(Pg_non_zero),np.where(Pg0>0)[0]))
-    Pd_dict = dict(zip(range(Pd_non_zero),np.where(Pd0>0)[0]))
+    #Pg_non_zero = sum(Pg0>0)
+    #Pd_non_zero = sum(Pd0>0)
+    #Pg_dict = dict(zip(range(Pg_non_zero),np.where(Pg0>0)[0]))
+    #Pd_dict = dict(zip(range(Pd_non_zero),np.where(Pd0>0)[0]))
+    pd_ls_pg = np.where(((Pg0-Pd0) > 0) & (Pd0 > 0) & (Pg0 > 0))[0]
+    pd_gr_pg = np.where(((Pg0-Pd0) < 0) & (Pd0 > 0) & (Pg0 > 0))[0]
+    Pg_map = np.where(Pg0>0)[0]
+    Pd_map = np.where(Pd0>0)[0]
     Pgmax = max(Pg0)
     Pdmax = max(Pd0)
     import gurobipy as gb
     m = gb.Model()
     
-    alpha_g = m.addVars(range(Pg_non_zero),lb=0)
-    alpha_d = m.addVars(range(Pd_non_zero),lb=0)
+    #alpha_g = m.addVars(range(Pg_non_zero),lb=0)
+    #alpha_d = m.addVars(range(Pd_non_zero),lb=0)
+    #
+    #m.addConstr(sum(alpha_g[i]*Pg0[Pg_dict[i]] for i in range(Pg_non_zero)) - 
+    #              sum(alpha_d[i]*Pd0[Pd_dict[i]] for i in range(Pd_non_zero)) == 0)
+    #m.addConstrs(alpha_g[i]*Pg0[Pg_dict[i]] >= gen_params['vmin'] for i in range(Pg_non_zero))
+    #m.addConstrs(alpha_g[i]*Pg0[Pg_dict[i]] <= gen_params['vmax'] for i in range(Pg_non_zero))
+    #m.addConstrs(alpha_d[i]*Pd0[Pd_dict[i]] >= load_params['vmin'] for i in range(Pd_non_zero))
+    #m.addConstrs(alpha_d[i]*Pd0[Pd_dict[i]] <= load_params['vmax'] for i in range(Pd_non_zero))
+    #
+    #obj = gb.QuadExpr()
+    #for i in alpha_g:
+    #    obj += (Pg0[Pg_dict[i]]/Pgmax)*(alpha_g[i]- 1)*(alpha_g[i] - 1)
+    #for i in alpha_d:
+    #    obj += (Pd0[Pd_dict[i]]/Pdmax)*(alpha_d[i]- 1)*(alpha_d[i] - 1)
+    #
+    #m.setObjective(obj,gb.GRB.MINIMIZE)
+    alpha_g = m.addVars(Pg_map,lb=0)
+    alpha_d = m.addVars(Pd_map,lb=0)
     
-    m.addConstr(sum(alpha_g[i]*Pg0[Pg_dict[i]] for i in range(Pg_non_zero)) - 
-                  sum(alpha_d[i]*Pd0[Pd_dict[i]] for i in range(Pd_non_zero)) == 0)
-    m.addConstrs(alpha_g[i]*Pg0[Pg_dict[i]] >= gen_params['vmin'] for i in range(Pg_non_zero))
-    m.addConstrs(alpha_g[i]*Pg0[Pg_dict[i]] <= gen_params['vmax'] for i in range(Pg_non_zero))
-    m.addConstrs(alpha_d[i]*Pd0[Pd_dict[i]] >= load_params['vmin'] for i in range(Pd_non_zero))
-    m.addConstrs(alpha_d[i]*Pd0[Pd_dict[i]] <= load_params['vmax'] for i in range(Pd_non_zero))
+    m.addConstr(sum(alpha_g[i]*Pg0[i] for i in Pg_map) - sum(alpha_d[i]*Pd0[i] for i in Pd_map) == 0)
+    m.addConstrs(alpha_g[i]*Pg0[i] >= gen_params['vmin']  for i in Pg_map)
+    m.addConstrs(alpha_g[i]*Pg0[i] <= gen_params['vmax']  for i in Pg_map)
+    m.addConstrs(alpha_d[i]*Pd0[i] >= load_params['vmin'] for i in Pd_map)
+    m.addConstrs(alpha_d[i]*Pd0[i] <= load_params['vmax'] for i in Pd_map)
+    m.addConstrs(alpha_d[i]*Pd0[i] <= alpha_g[i]*Pg0[i]   for i in pd_ls_pg)
+    m.addConstrs(alpha_d[i]*Pd0[i] >= alpha_g[i]*Pg0[i]   for i in pd_gr_pg)
     
     obj = gb.QuadExpr()
     for i in alpha_g:
-        obj += (Pg0[Pg_dict[i]]/Pgmax)*(alpha_g[i]- 1)*(alpha_g[i] - 1)
+        obj += (Pg0[i]/Pgmax)*(alpha_g[i]- 1)*(alpha_g[i] - 1)
     for i in alpha_d:
-        obj += (Pd0[Pd_dict[i]]/Pdmax)*(alpha_d[i]- 1)*(alpha_d[i] - 1)
+        obj += (Pd0[i]/Pdmax)*(alpha_d[i]- 1)*(alpha_d[i] - 1)
     
     m.setObjective(obj,gb.GRB.MINIMIZE)
     m.optimize()
 
-    ag_dict = {v:alpha_g[k].X for k,v in Pg_dict.items()}
-    ad_dict = {v:alpha_d[k].X for k,v in Pd_dict.items()}
+    #ag_dict = {v:alpha_g[k].X for k,v in Pg_dict.items()}
+    #ad_dict = {v:alpha_d[k].X for k,v in Pd_dict.items()}
     Pgnew = np.zeros(Pg0.shape)
     for i in range(Pgnew.shape[0]):
         try:
-            Pgnew[i] = Pg0[i]*ag_dict[i]
+            #Pgnew[i] = Pg0[i]*ag_dict[i]
+            Pgnew[i] = Pg0[i]*alpha_g[i].X
         except KeyError:
             Pgnew[i] = Pg0[i]
     Pdnew = np.zeros(Pd0.shape)
     for i in range(Pdnew.shape[0]):
         try:
-            Pdnew[i] = Pd0[i]*ad_dict[i]
+            #Pdnew[i] = Pd0[i]*ad_dict[i]
+            Pdnew[i] = Pd0[i]*alpha_d[i].X
         except KeyError:
             Pdnew[i] = Pd0[i]
     return Pgnew, Pdnew

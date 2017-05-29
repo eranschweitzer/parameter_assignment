@@ -410,7 +410,7 @@ class ZoneMILP(object):
             obj += (abs(self.p[self.p_out[self.inv_node_map[i]]])/pmax)*(alpha[i]- 1)*(alpha[i] - 1)
         
         m.setObjective(obj,gb.GRB.MINIMIZE)
-        m.write('zone%d_fixed_beta.lp' %(self.zone))
+        #m.write('zone%d_fixed_beta.lp' %(self.zone))
         m.optimize()
         if m.status == 2:
             # return dictionary keyed by node number and with values the multiple for the injection vector
