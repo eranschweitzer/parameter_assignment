@@ -84,7 +84,8 @@ def main(savename, fdata, mode='synth', method='ph'):
         b = get_b_from_dist(G.number_of_edges(), dist='kde', params=fitb['pchip'], vmin=fitb['vmin'], vmax=fitb['vmax']) 
         b_in = dict(zip(range(G.number_of_edges()),b))
     
-    pickle.dump((Pg,Pd,-1/b,Pg0,Pd0),open('algorithm_inputs_' + timestamp() + '.pkl', 'wb')) 
+    input_timestamp = timestamp()
+    pickle.dump((Pg,Pd,-1/b,Pg0,Pd0),open('algorithm_inputs_' + input_timestamp + '.pkl', 'wb')) 
     ####### constant inputs #########
     balance_epsilon = 1e-6
     slack_penalty   = 100
@@ -326,7 +327,7 @@ def main(savename, fdata, mode='synth', method='ph'):
     ###### Saving and logging ######
     saveparts = savename.split('.') 
     pickle.dump({'Pg': Pg_out, 'Pd': Pd_out, 'b': b_out, 'G': Gpf, 'pf': pf, 'ref': ref},
-            open(saveparts[0] + timestamp() + "." + saveparts[1],'wb'))
+            open(saveparts[0] + timestamp() + "inputstamp_" + input_timestamp + "." + saveparts[1],'wb'))
     end = time.time()
     seconds = int(end-start)
     hrs = seconds//3600

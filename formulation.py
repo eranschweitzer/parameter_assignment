@@ -474,81 +474,198 @@ class ZoneMILP(object):
 
 
     
-
+def fix_beta_and_rescale(G,Pg_out,Pd_out,b_out,params):
+    """ solve the full model fixing injections and impedances.
+    At this point the model is linear so the full system can be solved
+    Load and generation are rescaled as little as possible to 
+    satisfy all constraints
     
-
-def intertie_suceptance_assign(invars):
+    params must include the delta_max, f_max, Pgmax, Pgmin, Pdmax, and Pdmin
+    """
     m = gb.Model()
-    m.setParam('LogFile','/tmp/GurobiZone.log')
-    m.setParam('LogToConsole',0)
-    m.setParam('MIPGap',0.15)
-    #m.setParam('SolutionLimit',5) #stop after this many solutions are found
-    #m.setParam('TimeLimit', 500)
-    m.setParam('MIPFocus',1)
-    m.setParam('Threads',60)
-
-    ### data #####
-    balance_epsilon = invars['balance_epsilon']
-    G = invars['G']
-    p = invars['p']
-    b = invars['b']
-    f_max = invars['f_max']
-    delta_max = invars['delta_max']
-    M = invars['M']
-    edge_boundary = invars['edge_boundary']
-    node_num = G.number_of_nodes()
-    branch_num = G.number_of_edges()
     
-    ###### Variables ##########
-    Z     = m.addVars(edge_boundary,edge_boundary,vtype=gb.GRB.BINARY,name="Z")
-    theta = m.addVars(range(node_num),lb=-3.14,ub=3.14,name="theta")
-    s     = m.addVars(range(branch_num),name="s")
-    #f     = m.addVars(range(branch_num),lb=-f_max,ub=f_max,name="f")
-    f     = m.addVars(range(branch_num), 
-            lb=[-f_max[0] if l not in edge_boundary else -f_max[1] for l in range(branch_num)],
-            ub=[ f_max[0] if l not in edge_boundary else  f_max[1] for l in range(branch_num)],
-            name = "f")
-
-    ###### line flow constraints ######## 
-    for u,v,l in G.edges_iter(data='id'):
-        m.addConstr( ( theta[u] - theta[v] <=  delta_max),'delta_max[%s]' %(l) )
-        m.addConstr( ( theta[u] - theta[v] >= -delta_max),'delta_min[%s]' %(l) )
-        if l in edge_boundary:
-            for l_tilde in edge_boundary:
-                m.addConstr(f[l] + b[l_tilde]*(theta[u] - theta[v]) + M*(1-Z[l,l_tilde]) >= 0 )
-                m.addConstr(f[l] + b[l_tilde]*(theta[u] - theta[v]) - M*(1-Z[l,l_tilde]) <= 0 )
+    
+    # Define sets similar to the load balancing problem:
+    # * where are the generators
+    # * Where are the loads
+    # * When both, when is generation greater than load, and other way around
+    
+    pd_ls_pg = np.where(((Pg_out-Pd_out) > 0) & (Pd_out > 0) & (Pg_out > 0))[0]
+    pd_gr_pg = np.where(((Pg_out-Pd_out) < 0) & (Pd_out > 0) & (Pg_out > 0))[0]
+    Pg_map = np.where(Pg_out>0)[0]
+    Pd_map = np.where(Pd_out>0)[0]
+    
+    
+    # Define constants
+    #Pgmax = max(Pg_out)
+    #Pdmax = max(Pd_out)
+    #delta_max       = 60.0*np.pi/180.0
+    #f_max           = 10
+    
+    
+    # Define variables $\alpha_g$ and $\alpha_d$ which scale the load, in addition to the standard DC powerflow variables
+    
+    alpha_g = m.addVars(Pg_map,lb=0)
+    alpha_d = m.addVars(Pd_map,lb=0)
+    theta   = m.addVars(G.number_of_nodes(), lb=-3.14 , ub=3.14 , name="theta")
+    f       = m.addVars(G.number_of_edges(), lb=-params['f_max'], ub=params['f_max'], name="f")
+    
+    
+    # Add constraints similar to generation/load balancing:
+    # * The load and generation must remain equal
+    # * Generation must remain within bounds
+    # * Load must remain within bounds
+    # * Where load and generation are present their relationship (which one is bigger) cannot change
+    
+    m.addConstr(sum(alpha_g[i]*Pg_out[i] for i in Pg_map) - sum(alpha_d[i]*Pd_out[i] for i in Pd_map) == 0);
+    m.addConstrs(alpha_g[i]*Pg_out[i] >= params['Pgmin']  for i in Pg_map);
+    m.addConstrs(alpha_g[i]*Pg_out[i] <= params['Pgmax']  for i in Pg_map);
+    m.addConstrs(alpha_d[i]*Pd_out[i] >= params['Pdmin'] for i in Pd_map);
+    m.addConstrs(alpha_d[i]*Pd_out[i] <= params['Pdmax'] for i in Pd_map);
+    m.addConstrs(alpha_d[i]*Pd_out[i] <= alpha_g[i]*Pg_out[i]   for i in pd_ls_pg);
+    m.addConstrs(alpha_d[i]*Pd_out[i] >= alpha_g[i]*Pg_out[i]   for i in pd_gr_pg);
+    
+    
+    # Add $\Delta\theta$ constraints and $B\theta$ description of powerflow constraints.
+    # Also adds variable $s$ constraints that allow the access the absolute value of the angle difference.
+    
+    for u,v,l in G.edges_iter(data='id'): 
+        m.addConstr( (theta[u] - theta[v] <=  params['delta_max']), name='delta_max[%s]' %(l) );
+        m.addConstr( (theta[u] - theta[v] >= -params['delta_max']), name='delta_min[%s]' %(l) );
+        m.addConstr( (f[l] + b_out[l]*(theta[u] - theta[v]) == 0), name='flow[%s]' %(l) );
+    
+    
+    # Add nodal balance constraint
+    
+    for i in G.nodes_iter():
+        if (i in alpha_g) and (i in alpha_d):
+            m.addConstr(
+                    (  (alpha_g[i]*Pg_out[i] - alpha_d[i]*Pd_out[i])/100. + \
+                        sum(f[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - \
+                        sum(f[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0), name="balance[%s]" %(i)
+                    );
+        elif i in alpha_g:
+            m.addConstr(
+                    (  (alpha_g[i]*Pg_out[i])/100. + \
+                        sum(f[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - \
+                        sum(f[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0), name="balance[%s]" %(i)
+                    );
+        elif i in alpha_d:
+            m.addConstr(
+                    (  -(alpha_d[i]*Pd_out[i])/100. + \
+                        sum(f[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - \
+                        sum(f[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0), name="balance[%s]" %(i)
+                    );
         else:
-            m.addConstr(f[l] + b[l]*(theta[u] - theta[v]) == 0)
-
-    ###### Node Balance constraints #####
-    m.addConstrs(
-            ( p[n] + sum(f[l['id']] for _,_,l in G.in_edges_iter([n],data='id')) - \
-                sum(f[l] for _,_,l in G.out_edges_iter([n],data='id')) <= balance_epsilon for n in range(node_num)),"balance1"
-            )
-    m.addConstrs(
-            ( p[n] + sum(f[l['id']] for _,_,l in G.in_edges_iter([n],data='id')) - \
-                sum(f[l] for _,_,l in G.out_edges_iter([n],data='id')) >= -balance_epsilon for n in range(node_num)),"balance1"
-            )
-    ######## permutation matrix constraints #############
-    m.addConstrs( (Z.sum(l,'*')  == 1 for l in edge_boundary),"Z_rows")
-    m.addConstrs( (Z.sum('*',l)  == 1 for l in edge_boundary),"Z_cols")
-    for u,v,l in G.edges_iter(data='id'):
-        m.addConstr( (s[l] + f[l] >= 0 ),"slack_1[%s]" %(l))
-        m.addConstr( (s[l] - f[l] >= 0 ),"slack_2[%s]" %(l))
-
-    ####### Objective ############
-    m.setObjective(s.sum('*'),gb.GRB.MINIMIZE) 
-
+            m.addConstr(
+                     (sum(f[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - \
+                      sum(f[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0), name="balance[%s]" %(i)
+                     );
+    
+    
+    # Add quadratic objective keeping $\alpha_g$ and $\alpha_d$ as close to 1 as possible. 
+    obj = gb.QuadExpr()
+    for i in alpha_g:
+    #     obj += (Pg0[i]/Pgmax)*(alpha_g[i]- 1)*(alpha_g[i] - 1)
+        obj += (alpha_g[i]- 1)*(alpha_g[i] - 1)
+    for i in alpha_d:
+    #     obj += (Pd0[i]/Pdmax)*(alpha_d[i]- 1)*(alpha_d[i] - 1)
+        obj += (alpha_d[i]- 1)*(alpha_d[i] - 1)
+    
+    m.setObjective(obj,gb.GRB.MINIMIZE);
+    
+    
+    # Solve
     m.optimize()
+    
+    # Form new load and generation vectors
+    Pgnew = np.zeros(Pg_out.shape)
+    for i in range(Pgnew.shape[0]):
+        try:
+            Pgnew[i] = Pg_out[i]*alpha_g[i].X
+        except KeyError:
+            Pgnew[i] = Pg_out[i]
+    Pdnew = np.zeros(Pd_out.shape)
+    for i in range(Pdnew.shape[0]):
+        try:
+            Pdnew[i] = Pd_out[i]*alpha_d[i].X
+        except KeyError:
+            Pdnew[i] = Pd_out[i]
+   
+    return Pgnew, Pdnew
 
-    if m.solcount > 0:
-        print('max f: %0.3g' %(max([f[i].X for i in f]) ) )
-        print('max delta: %0.3g' %(max([abs(theta[u].X - theta[v].X) for u,v in G.edges_iter()]) ) )
-        bnew = b.copy()
-        for l,l_tilde in itertools.product(edge_boundary,edge_boundary):
-            if Z[l,l_tilde].X > 0.5:
-                bnew[l] = b[l_tilde]
-        return bnew
-    else:
-        logging.info('Solver exited with status %d and no solution', m.status)
-        sys.exit(0)
+#def intertie_suceptance_assign(invars):
+#    m = gb.Model()
+#    m.setParam('LogFile','/tmp/GurobiZone.log')
+#    m.setParam('LogToConsole',0)
+#    m.setParam('MIPGap',0.15)
+#    #m.setParam('SolutionLimit',5) #stop after this many solutions are found
+#    #m.setParam('TimeLimit', 500)
+#    m.setParam('MIPFocus',1)
+#    m.setParam('Threads',60)
+#
+#    ### data #####
+#    balance_epsilon = invars['balance_epsilon']
+#    G = invars['G']
+#    p = invars['p']
+#    b = invars['b']
+#    f_max = invars['f_max']
+#    delta_max = invars['delta_max']
+#    M = invars['M']
+#    edge_boundary = invars['edge_boundary']
+#    node_num = G.number_of_nodes()
+#    branch_num = G.number_of_edges()
+#    
+#    ###### Variables ##########
+#    Z     = m.addVars(edge_boundary,edge_boundary,vtype=gb.GRB.BINARY,name="Z")
+#    theta = m.addVars(range(node_num),lb=-3.14,ub=3.14,name="theta")
+#    s     = m.addVars(range(branch_num),name="s")
+#    #f     = m.addVars(range(branch_num),lb=-f_max,ub=f_max,name="f")
+#    f     = m.addVars(range(branch_num), 
+#            lb=[-f_max[0] if l not in edge_boundary else -f_max[1] for l in range(branch_num)],
+#            ub=[ f_max[0] if l not in edge_boundary else  f_max[1] for l in range(branch_num)],
+#            name = "f")
+#
+#    ###### line flow constraints ######## 
+#    for u,v,l in G.edges_iter(data='id'):
+#        m.addConstr( ( theta[u] - theta[v] <=  delta_max),'delta_max[%s]' %(l) )
+#        m.addConstr( ( theta[u] - theta[v] >= -delta_max),'delta_min[%s]' %(l) )
+#        if l in edge_boundary:
+#            for l_tilde in edge_boundary:
+#                m.addConstr(f[l] + b[l_tilde]*(theta[u] - theta[v]) + M*(1-Z[l,l_tilde]) >= 0 )
+#                m.addConstr(f[l] + b[l_tilde]*(theta[u] - theta[v]) - M*(1-Z[l,l_tilde]) <= 0 )
+#        else:
+#            m.addConstr(f[l] + b[l]*(theta[u] - theta[v]) == 0)
+#
+#    ###### Node Balance constraints #####
+#    m.addConstrs(
+#            ( p[n] + sum(f[l['id']] for _,_,l in G.in_edges_iter([n],data='id')) - \
+#                sum(f[l] for _,_,l in G.out_edges_iter([n],data='id')) <= balance_epsilon for n in range(node_num)),"balance1"
+#            )
+#    m.addConstrs(
+#            ( p[n] + sum(f[l['id']] for _,_,l in G.in_edges_iter([n],data='id')) - \
+#                sum(f[l] for _,_,l in G.out_edges_iter([n],data='id')) >= -balance_epsilon for n in range(node_num)),"balance1"
+#            )
+#    ######## permutation matrix constraints #############
+#    m.addConstrs( (Z.sum(l,'*')  == 1 for l in edge_boundary),"Z_rows")
+#    m.addConstrs( (Z.sum('*',l)  == 1 for l in edge_boundary),"Z_cols")
+#    for u,v,l in G.edges_iter(data='id'):
+#        m.addConstr( (s[l] + f[l] >= 0 ),"slack_1[%s]" %(l))
+#        m.addConstr( (s[l] - f[l] >= 0 ),"slack_2[%s]" %(l))
+#
+#    ####### Objective ############
+#    m.setObjective(s.sum('*'),gb.GRB.MINIMIZE) 
+#
+#    m.optimize()
+#
+#    if m.solcount > 0:
+#        print('max f: %0.3g' %(max([f[i].X for i in f]) ) )
+#        print('max delta: %0.3g' %(max([abs(theta[u].X - theta[v].X) for u,v in G.edges_iter()]) ) )
+#        bnew = b.copy()
+#        for l,l_tilde in itertools.product(edge_boundary,edge_boundary):
+#            if Z[l,l_tilde].X > 0.5:
+#                bnew[l] = b[l_tilde]
+#        return bnew
+#    else:
+#        logging.info('Solver exited with status %d and no solution', m.status)
+#        sys.exit(0)

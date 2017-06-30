@@ -59,7 +59,7 @@ def make_graph(p,b,f,t,ref,pf):
             G.add_node(i,attr_dict={'ref':i==ref,'p':p[i],'theta':pf['theta'][i]})
     for i in range(len(b)):
         G.add_edge(f[i],t[i],attr_dict={'flow':pf['flows'][i],'delta':pf['delta'][i],\
-                'f':f[i],'t':t[i]})
+                'f':f[i],'t':t[i], 'x':-1/b[i]})
     return G
 
 

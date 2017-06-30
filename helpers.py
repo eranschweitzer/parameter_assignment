@@ -225,6 +225,7 @@ def injection_equalize_optimization(Pg0,Pd0,gen_params,load_params):
     Pdmax = max(Pd0)
     import gurobipy as gb
     m = gb.Model()
+    #m.setParam('LogToConsole',0)
     
     #alpha_g = m.addVars(range(Pg_non_zero),lb=0)
     #alpha_d = m.addVars(range(Pd_non_zero),lb=0)
@@ -413,4 +414,16 @@ def zone_power_sample(N, p_in, Mboundary, beta_max):
             logging.info('Cannot create sufficiently balanced zone')
             sys.exit(0)
     return ph
+
+def powervectors_from_iteration_dump(input_name,dump_name):
+    """ restore powervectors from an iteration dump file """
+
+    Pg,Pd,x,Pg0,Pd0 = pickle.load(open(input_name, 'rb'))
+    beta,beta_bar,beta_diff,wdump,nu_map,pdump,bdump = pickle.load(open(dump_name,'rb'))
+    p_out = {}
+    for i in pdump.keys():
+        p_out.update(pdump[i])
+    Pg_out = np.array([Pg[p_out[i]] for i in range(len(p_out))])
+    Pd_out = np.array([Pd[p_out[i]] for i in range(len(p_out))])
+    return Pg_out, Pd_out
     
