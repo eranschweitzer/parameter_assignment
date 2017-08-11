@@ -118,15 +118,15 @@ class ZoneMILP(object):
         # Objective
         ################
         #print('Setting objective...',end="",flush=True)
-        def obj():
-            return self.s.sum('*') + self.beta_plus.sum('*') + self.beta_minus.sum('*')
+        def obj(creg):
+            return creg*self.s.sum('*') + self.beta_plus.sum('*') + self.beta_minus.sum('*')
         #obj = self.s.sum('*')
         ##obj += max(1,mismatch)*self.beta_plus.sum('*')
         ##obj += max(1,mismatch)*self.beta_minus.sum('*')
         #obj += self.beta_plus.sum('*')
         #obj += self.beta_minus.sum('*')
         self.obj = obj
-        self.m.setObjective(self.obj(),gb.GRB.MINIMIZE) 
+        self.m.setObjective(self.obj(invars['creg']),gb.GRB.MINIMIZE) 
         #print('Complete.')
 
         ##################
@@ -196,11 +196,11 @@ class ZoneMILP(object):
         #### don't allow zeros load on degree 1 nodes #####
         #### if zone then 0 on degree one is allowed if it is a boundary node
         #print('Degree one constraints...',end="",flush=True)
-        for i,deg in G.degree_iter():
-            if deg == 1:
-                if i not in boundary:
-                    for j in np.where(np.array([p[p_map[n]] for n in range(node_num)]) == 0)[0]:
-                        self.m.addConstr(self.Pi[i,j] == 0, name="deg_one[%s,%s]" %(i,j))
+#        for i,deg in G.degree_iter():
+#            if deg == 1:
+#                if i not in boundary:
+#                    for j in np.where(np.array([p[p_map[n]] for n in range(node_num)]) == 0)[0]:
+#                        self.m.addConstr(self.Pi[i,j] == 0, name="deg_one[%s,%s]" %(i,j))
         #print('Complete.')
 
         ## Initialze weights
@@ -227,10 +227,11 @@ class ZoneMILP(object):
         self.delta_max     = delta_max
         self.Pg            = invars['Pg']
         self.Pd            = invars['Pd']
+        self.creg          = invars['creg']
 
     def ph_objective_update(self,beta_bar,rho):
         node_mapping = self.node_mapping
-        obj = self.obj()
+        obj = self.obj(self.creg)
         #obj = self.s.sum('*')
         #obj += max(1,self.mismatch)*self.beta_plus.sum('*')
         #obj += max(1,self.mismatch)*self.beta_minus.sum('*')
@@ -248,7 +249,7 @@ class ZoneMILP(object):
         self.m.setObjective(obj)
 
     def lr_objective_update(self,nu,nu_map):
-        obj = self.obj()
+        obj = self.obj(self.creg)
         for i in self.ebound_list:
             obj += nu_map[i][self.zone]*nu[i]*self.beta[i]
         self.m.setObjective(obj)
