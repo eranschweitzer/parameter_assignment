@@ -1,4 +1,5 @@
 cases/*
+logs/*
 .DS_Store
 *.pdf
 *.log
