@@ -156,7 +156,7 @@ def gen_sample(N,vmax=np.inf,vmin=-np.inf,dist='exp',params=None):
     else:
         return out
 
-def injection_sample(N,frac=None,gen_params=None,load_params=None):
+def injection_sample(N,frac=None,gen_params=None,load_params=None, sysLoad=None):
     """ parameter inputs need to include a maximum and minimum vmax,vmin,
     a distribution name and the corresponding parameters for it"""
     #int_frac=0.08,inj_frac=0.13,gen_only_frac=0.5
@@ -209,14 +209,11 @@ def injection_sample(N,frac=None,gen_params=None,load_params=None):
     #Pd = np.concatenate([np.zeros(Nint),load,gen_load['d'],np.zeros(Ngen_only)])
     Pg0 = np.concatenate([np.zeros(Nint), np.zeros(Nload_only), gen_load_neg['g'], gen_load_pos['g'], gen_only])
     Pd0 = np.concatenate([np.zeros(Nint), load, gen_load_neg['d'], gen_load_pos['d'], np.zeros(Ngen_only)])
-    Pg, Pd = injection_equalize_optimization(Pg0, Pd0, gen_params, load_params)
+    Pg, Pd = injection_equalize_optimization(Pg0, Pd0, gen_params, load_params, sysLoad=sysLoad)
     return Pg, Pd, Pg0, Pd0
 
-def injection_equalize_optimization(Pg0,Pd0,gen_params,load_params):
-    #Pg_non_zero = sum(Pg0>0)
-    #Pd_non_zero = sum(Pd0>0)
-    #Pg_dict = dict(zip(range(Pg_non_zero),np.where(Pg0>0)[0]))
-    #Pd_dict = dict(zip(range(Pd_non_zero),np.where(Pd0>0)[0]))
+def injection_equalize_optimization(Pg0,Pd0,gen_params,load_params,sysLoad=None):
+
     pd_ls_pg = np.where(((Pg0-Pd0) > 0) & (Pd0 > 0) & (Pg0 > 0))[0]
     pd_gr_pg = np.where(((Pg0-Pd0) < 0) & (Pd0 > 0) & (Pg0 > 0))[0]
     Pg_map = np.where(Pg0>0)[0]
@@ -225,25 +222,7 @@ def injection_equalize_optimization(Pg0,Pd0,gen_params,load_params):
     Pdmax = max(Pd0)
     import gurobipy as gb
     m = gb.Model()
-    #m.setParam('LogToConsole',0)
-    
-    #alpha_g = m.addVars(range(Pg_non_zero),lb=0)
-    #alpha_d = m.addVars(range(Pd_non_zero),lb=0)
-    #
-    #m.addConstr(sum(alpha_g[i]*Pg0[Pg_dict[i]] for i in range(Pg_non_zero)) - 
-    #              sum(alpha_d[i]*Pd0[Pd_dict[i]] for i in range(Pd_non_zero)) == 0)
-    #m.addConstrs(alpha_g[i]*Pg0[Pg_dict[i]] >= gen_params['vmin'] for i in range(Pg_non_zero))
-    #m.addConstrs(alpha_g[i]*Pg0[Pg_dict[i]] <= gen_params['vmax'] for i in range(Pg_non_zero))
-    #m.addConstrs(alpha_d[i]*Pd0[Pd_dict[i]] >= load_params['vmin'] for i in range(Pd_non_zero))
-    #m.addConstrs(alpha_d[i]*Pd0[Pd_dict[i]] <= load_params['vmax'] for i in range(Pd_non_zero))
-    #
-    #obj = gb.QuadExpr()
-    #for i in alpha_g:
-    #    obj += (Pg0[Pg_dict[i]]/Pgmax)*(alpha_g[i]- 1)*(alpha_g[i] - 1)
-    #for i in alpha_d:
-    #    obj += (Pd0[Pd_dict[i]]/Pdmax)*(alpha_d[i]- 1)*(alpha_d[i] - 1)
-    #
-    #m.setObjective(obj,gb.GRB.MINIMIZE)
+
     alpha_g = m.addVars(Pg_map,lb=0)
     alpha_d = m.addVars(Pd_map,lb=0)
     
@@ -254,6 +233,8 @@ def injection_equalize_optimization(Pg0,Pd0,gen_params,load_params):
     m.addConstrs(alpha_d[i]*Pd0[i] <= load_params['vmax'] for i in Pd_map)
     m.addConstrs(alpha_d[i]*Pd0[i] <= alpha_g[i]*Pg0[i]   for i in pd_ls_pg)
     m.addConstrs(alpha_d[i]*Pd0[i] >= alpha_g[i]*Pg0[i]   for i in pd_gr_pg)
+    if sysLoad is not None:
+        m.addConstr(sum(alpha_g[i]*Pg0[i] for i in Pg_map) == sysLoad)
     
     obj = gb.QuadExpr()
     for i in alpha_g:
@@ -264,19 +245,15 @@ def injection_equalize_optimization(Pg0,Pd0,gen_params,load_params):
     m.setObjective(obj,gb.GRB.MINIMIZE)
     m.optimize()
 
-    #ag_dict = {v:alpha_g[k].X for k,v in Pg_dict.items()}
-    #ad_dict = {v:alpha_d[k].X for k,v in Pd_dict.items()}
     Pgnew = np.zeros(Pg0.shape)
     for i in range(Pgnew.shape[0]):
         try:
-            #Pgnew[i] = Pg0[i]*ag_dict[i]
             Pgnew[i] = Pg0[i]*alpha_g[i].X
         except KeyError:
             Pgnew[i] = Pg0[i]
     Pdnew = np.zeros(Pd0.shape)
     for i in range(Pdnew.shape[0]):
         try:
-            #Pdnew[i] = Pd0[i]*ad_dict[i]
             Pdnew[i] = Pd0[i]*alpha_d[i].X
         except KeyError:
             Pdnew[i] = Pd0[i]
@@ -426,4 +403,13 @@ def powervectors_from_iteration_dump(input_name,dump_name):
     Pg_out = np.array([Pg[p_out[i]] for i in range(len(p_out))])
     Pd_out = np.array([Pd[p_out[i]] for i in range(len(p_out))])
     return Pg_out, Pd_out
-    
+   
+def parallel_map(Gin):
+    G = nx.MultiGraph(Gin) #convert to non-directed
+    pmap = {}
+    for u,v in G.edges_iter():
+        if len(G.edge[u][v]) > 1:
+            ids = sorted([val['id'] for k,val in G.edge[u][v].items()])
+            for e in range(len(ids)-1):
+                pmap[ids[e]] = ids[e+1]
+    return pmap

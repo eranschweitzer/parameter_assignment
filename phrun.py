@@ -15,7 +15,7 @@ from helpers import injection_sample, get_b_from_dist
 def timestamp():
     return datetime.now().strftime('%d-%m-%Y_%H%M')
 
-def main(savename, fdata, mode='synth', method='ph'):
+def main(savename, fdata, mode='synth', sysLoad=None, method='ph'):
     """
         modes:
             real: only shuffle injections and impedance
@@ -25,11 +25,18 @@ def main(savename, fdata, mode='synth', method='ph'):
     """
     start = time.time()
     FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
-    logging.basicConfig(format=FORMAT,level=logging.INFO,datefmt='%H:%M:%S')
+    logging.basicConfig(format=FORMAT,level=logging.DEBUG,datefmt='%H:%M:%S')
+
+    if sysLoad == 'None':
+        sysLoad = None
+    if sysLoad is not None:
+        sysLoad = float(sysLoad)
 
     logging.info("Saving to: %s",savename)
     logging.info("Topology data: %s", fdata)
     logging.info("mode: %s", mode)
+    if sysLoad is not None:
+        logging.info("Desired System Load: %0.1f MW", sysLoad)
     ###### Topological data ###########
     if mode == 'synth': 
         top = pd.read_csv(fdata)
@@ -45,6 +52,7 @@ def main(savename, fdata, mode='synth', method='ph'):
 
     G = nx.MultiDiGraph()
     G.add_edges_from(zip(f_node,t_node,[{'id':i} for i in range(f_node.shape[0])]))
+    pmap = hlp.parallel_map(G) # pmap[eid] -> eid2 where eid and eid2 are parallel and eid2 > eid
 
     ###### power injections #########
     Pgfit   = pickle.load(open('./cases/polish2383_wp_power_Pg_pchipfit.pkl','rb'))
@@ -69,11 +77,11 @@ def main(savename, fdata, mode='synth', method='ph'):
         #Pg,Pd = injection_sample(G.number_of_nodes(),int_frac=0.23,inj_frac=0.053,gen_only_frac=0.03,gen_params=gen_params,load_params=load_params)
         gen_params  = {'vmax': Pgfit['vmax'], 'vmin': Pgfit['vmin'], 'dist': 'pchip', 'params': Pgfit['pchip']}
         load_params = {'vmax': Pdfit['vmax'], 'vmin': Pdfit['vmin'], 'dist': 'pchip', 'params': Pdfit['pchip']}
-        Pg,Pd,Pg0,Pd0 = injection_sample(G.number_of_nodes(), frac=Fracfit, gen_params=gen_params, load_params=load_params)
+        Pg,Pd,Pg0,Pd0 = injection_sample(G.number_of_nodes(), frac=Fracfit, gen_params=gen_params, load_params=load_params, sysLoad=sysLoad)
         p = (Pg - Pd)/100
         p_in = dict(zip(range(G.number_of_nodes()),p))
-    logging.info('%0.3f <= Pg <= %0.3f', min(Pg[Pg>0]), max(Pg[Pg>0]))
-    logging.info('%0.3f <= Pd <= %0.3f', min(Pd[Pd>0]), max(Pd[Pd>0]))
+    logging.info('%0.3f <= Pg <= %0.3f, sum(Pg) = %0.1f', min(Pg[Pg>0]), max(Pg[Pg>0]), sum(Pg))
+    logging.info('%0.3f <= Pd <= %0.3f, sum(Pd) = %0.1f', min(Pd[Pd>0]), max(Pd[Pd>0]), sum(Pd))
     logging.info('sum(Pg - Pd) = %0.3g', sum(Pg - Pd))
     logging.info('intermediate: %0.1f%%, Pg>Pd %0.1f%%, gen_only: %0.1f%%',100*sum((Pg == 0) & (Pd == 0))/Pd.shape[0], 100*sum(((Pg-Pd) > 0) & (Pd != 0))/sum(Pg>0), 100*sum((Pg > 0) & (Pd == 0))/sum(Pg > 0) )
 
@@ -93,6 +101,7 @@ def main(savename, fdata, mode='synth', method='ph'):
     ####### constant inputs #########
     balance_epsilon = 1e-6
     slack_penalty   = 100
+    pepsilon        = 0.01
     delta_max       = 60.0*np.pi/180.0
     f_max           = 9 #10
     beta_max        = f_max*0.75
@@ -136,7 +145,6 @@ def main(savename, fdata, mode='synth', method='ph'):
     #pickle.dump((zones, boundaries, eboundary_map,boundary_edges,n2n),open('zone_dump.pkl','wb'))
 
     for i,(H,boundary,ebound) in enumerate(zip(zones,boundaries,eboundary_map)):
-        logging.info('Initializing Zone %d: nodes=%d, edges=%d, boundary_edges=%d', i, H.number_of_nodes(), H.number_of_edges(), len(ebound[1]))
         #ph = {k: p_in[k] for k in random.sample(list(p_in),H.number_of_nodes())}
         ph = hlp.zone_power_sample(H.number_of_nodes(), p_in, len(ebound[1]), beta_max)
         bh = {k: b_in[k] for k in random.sample(list(b_in),H.number_of_edges())}
@@ -148,7 +156,10 @@ def main(savename, fdata, mode='synth', method='ph'):
         for k in bh:
             b_in.pop(k)
 
-        invars = {'G':H,'boundary':boundary, 'ebound':ebound,'p':ph,'b':bh, 'Pg':Pgh, 'Pd':Pdh,\
+        logging.info('Initialized Zone %d: nodes=%d, edges=%d, boundary_edges=%d, Pg=%0.1f, Pd=%0.1f, Pg-Pd=%0.1f', i, H.number_of_nodes(), H.number_of_edges(), len(ebound[1]), \
+                sum(Pgh.values(),), sum(Pdh.values()), 100.*sum(ph.values()))
+
+        invars = {'G':H,'boundary':boundary, 'ebound':ebound,'p':ph,'b':bh, 'Pg':Pgh, 'Pd':Pdh, 'pmap': pmap, 'pepsilon': pepsilon,\
                 'M':M, 'delta_max':delta_max,'f_max':f_max, 'beta_max':beta_max, 'balance_epsilon':balance_epsilon, 'creg':creg}
         solvers.append(fm.ZoneMILP(i,invars))
         
@@ -177,22 +188,28 @@ def main(savename, fdata, mode='synth', method='ph'):
             if iter == 1:
                 ### only apply time limit after the first iteration
                 solver.m.setParam('TimeLimit',300)
+                logging.info("fixing susceptance assignement")
+                solver.fix_Z()
             solver.optimize()
             if solver.m.solcount == 0:
-                solver.m.setParam('TimeLimit','default')
-                logging.info("     fixing Z binaries")
-                solver.fix_Z()
-                logging.info("     fixing P binaries")
-                solver.fix_Pi()
+                if iter == 0:
+                    solver.fix_parallel_b()
+                    solver.optimize()
+                else:
+                    solver.m.setParam('TimeLimit','default')
+                    logging.info("     fixing Z binaries")
+                    solver.fix_Z()
+                    logging.info("     fixing P binaries")
+                    solver.fix_Pi()
 
-                logging.info("     resolving")
-                solver.optimize()
+                    logging.info("     resolving")
+                    solver.optimize()
 
-                logging.info("     unfixing Z binaries")
-                solver.unfix_Z()
-                logging.info("     unfixing P binaries")
-                solver.unfix_Pi()
-                solver.m.setParam('TimeLimit',300)
+                    logging.info("     unfixing Z binaries")
+                    solver.unfix_Z()
+                    logging.info("     unfixing P binaries")
+                    solver.unfix_Pi()
+                    solver.m.setParam('TimeLimit',300)
             logging.info("      Solved with status %d, objective=%0.3f",solver.m.status,solver.m.objVal)
             beta[solver.zone] = solver.beta_val
             for k,v in solver.beta_val.items():

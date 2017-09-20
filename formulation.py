@@ -7,7 +7,7 @@ import networkx as nx
 import logging
 
 FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
-logging.basicConfig(format=FORMAT,level=logging.INFO,datefmt='%H:%M:%S')
+logging.basicConfig(format=FORMAT,level=logging.DEBUG,datefmt='%H:%M:%S')
 
 def mycallback(model,where):
     """ Create a callback for termination
@@ -20,6 +20,8 @@ def mycallback(model,where):
         if (solcnt > 1) and elapsed_time > 500:
             logging.info('      terminating in MISOL')
             model.terminate()
+        elif (elapsed_time > 1000) and (not model._parflag):
+            model.terminate()
         #elif elapsed_time > 1000 and not model._Zfixflag:
         #    logging.info('      terminating withought solution')
         #    model.terminate()
@@ -29,6 +31,8 @@ def mycallback(model,where):
         if (solcnt > 1) and elapsed_time > 500:
             logging.info('      terminating in MIP')
             model.terminate()
+        elif (elapsed_time > 1000) and (not model._parflag):
+            model.terminate()
         #elif (elapsed_time > 1000) and not model._Zfixflag:
         #    logging.info('      terminating withought solution')
         #    model.terminate()
@@ -37,6 +41,8 @@ def mycallback(model,where):
         solcnt       = model.cbGet(gb.GRB.Callback.MIPNODE_SOLCNT)
         if (solcnt > 1) and elapsed_time > 500:
             logging.info('      terminating in MIPNODE')
+            model.terminate()
+        elif (elapsed_time > 1000) and (not model._parflag):
             model.terminate()
         #elif elapsed_time > 1000 and not model._Zfixflag:
         #    logging.info('      terminating withought solution')
@@ -97,6 +103,7 @@ class ZoneMILP(object):
         #print('Creating Z variable....',end="",flush=True)
         self.Z =     self.m.addVars(range(branch_num),range(branch_num),vtype=gb.GRB.BINARY,name="Z")
         self.m._Zfixflag = False
+        self.m._parflag  = False
         #print('Complete.')
         #print('Creating theta variable...',end="",flush=True)
         self.theta = self.m.addVars(range(node_num),lb=-3.14,ub=3.14,name="theta")
@@ -128,7 +135,7 @@ class ZoneMILP(object):
         self.obj = obj
         self.m.setObjective(self.obj(invars['creg']),gb.GRB.MINIMIZE) 
         #print('Complete.')
-
+        
         ##################
         # Constraints
         #################
@@ -136,6 +143,12 @@ class ZoneMILP(object):
         for u,v,l in G.edges_iter(data='id'): 
             self.m.addConstr( ( self.theta[u] - self.theta[v] <=  delta_max), name='delta_max[%s]' %(edge_mapping[l]) )
             self.m.addConstr( ( self.theta[u] - self.theta[v] >= -delta_max), name='delta_min[%s]' %(edge_mapping[l]) )
+            if l in invars['pmap']:
+                # parallel branches should have similar susceptances
+                self.m.addConstr( sum(self.Z[edge_mapping[l],i]*b[b_map[i]] for i in range(branch_num)) - \
+                                  sum(self.Z[edge_mapping[invars['pmap'][l]],i]*b[b_map[i]] for i in range(branch_num))>= -invars['pepsilon'], name='pepsilon_min[%s]' %(edge_mapping[l]))
+                self.m.addConstr( sum(self.Z[edge_mapping[l],i]*b[b_map[i]] for i in range(branch_num)) - \
+                                  sum(self.Z[edge_mapping[invars['pmap'][l]],i]*b[b_map[i]] for i in range(branch_num))<=  invars['pepsilon'], name='pepsilon_max[%s]' %(edge_mapping[l]))
         #print('Complete.')
         #print('Flow Constraints...',end="",flush=True)
         for u,v,l in G.edges_iter(data='id'):
@@ -192,6 +205,17 @@ class ZoneMILP(object):
         self.bp_slack = self.m.addConstrs( (self.beta_plus[l]  >=  self.beta[l] for l in self.beta.keys()), name="bp_slack")
         self.bm_slack = self.m.addConstrs( (self.beta_minus[l] >= -self.beta[l] for l in self.beta.keys()), name="bm_slack")
         #print('Complete.')
+        
+        inlist  = np.concatenate( [np.array(val) for val in ebound_map['in'].values()])
+        outlist = np.concatenate( [np.array(val) for val in ebound_map['out'].values()])
+        for l in ebound_list:
+            if l in invars['pmap']:
+                if ((l in inlist) and (invars['pmap'][l] in inlist)) or ((l in outlist) and (invars['pmap'][l] in outlist)):
+                    # same orientatin of boundary parallel edges
+                    self.m.addconstr( self.beta[l] - self.beta[invars['pmap'][l]] == 0)
+                else:
+                    # opposite orientation
+                    self.m.addconstr( self.beta[l] + self.beta[invars['pmap'][l]] == 0)
 
         #### don't allow zeros load on degree 1 nodes #####
         #### if zone then 0 on degree one is allowed if it is a boundary node
@@ -228,6 +252,8 @@ class ZoneMILP(object):
         self.Pg            = invars['Pg']
         self.Pd            = invars['Pd']
         self.creg          = invars['creg']
+
+        #self.fix_parallel_b()
 
     def ph_objective_update(self,beta_bar,rho):
         node_mapping = self.node_mapping
@@ -272,6 +298,84 @@ class ZoneMILP(object):
             if not self.m._Pifixflag:
                 self.m._Pi = {(i,j): self.Pi[i,j].X for i,j in self.Pi.keys()}
     
+    def fix_parallel_b(self):
+
+        logging.info('Fixing parallel b values')
+        self.m._parflag = True
+        inv_b_map = {v:k for k,v in self.b_map.items()}
+        sorted_b = sorted(self.b, key=self.b.get)   # keys of b for values of b in sorted order
+        bdiff    = np.abs(np.diff(sorted(self.b.values()))) #absolute value of difference between sorted values
+        sort_idx = np.argsort(bdiff)
+        logging.debug('sorted bdiff = [%0.2g, %0.2g, %0.2g, ...]', bdiff[sort_idx[0]], bdiff[sort_idx[1]], bdiff[sort_idx[2]])
+        map = {}
+        cnt = 0
+        for _,_,l in self.G.edges_iter(data='id'):
+            if l in self.invars['pmap']:
+                row1 = self.edge_mapping[l]
+                row2 = self.edge_mapping[self.invars['pmap'][l]]
+                logging.debug( 'edge %d/%d (ext/int) is parallel to %d/%d (ext/int)',l,row1,self.invars['pmap'][l],row2)
+                if row1 in map:
+                    logging.info('parallel case 1')
+                    col1 = None
+                    dir = 1
+                    while True:
+                        col2_ptr = map[row1] + dir
+                        if col2_ptr > len(sorted_b):
+                            dir = -1
+                            continue
+                        if inv_b_map[sorted_b[col2_ptr]] not in map.values():
+                            break
+                        else:
+                            dir += np.sign(dir)
+                    map[row2] = col2_ptr
+                    col2 = inv_b_map[sorted_b[col2_ptr]]
+                elif row2 in map:
+                    logging.debug('parallel case 2')
+                    col2 = None
+                    dir = 1
+                    while True:
+                        col1_ptr = map[row2] + dir
+                        if col1_ptr > len(sorted_b):
+                            dir = -1
+                            continue
+                        if inv_b_map[sorted_b[col1_ptr]] not in map.values():
+                            break
+                        else:
+                            dir += np.sign(dir)
+                    map[row1] = col1_ptr
+                    col1 = inv_b_map[sorted_b[col1_ptr]]
+                else:
+                    logging.debug('parallel case 3')
+                    while True: 
+                        col1_ptr = sort_idx[cnt]
+                        col2_ptr = col1_ptr + 1
+                        cnt += 1
+                        if (col1_ptr not in map.values()) and (col2_ptr not in map.values()):
+                            break
+                    col1 = inv_b_map[sorted_b[col1_ptr]]
+                    col2 = inv_b_map[sorted_b[col2_ptr]]
+                    map[row1] = col1_ptr
+                    map[row2] = col2_ptr
+                for row,col in zip([row1,row2],[col1,col2]):
+                    if col is not None:
+                        for i in range(self.branch_num):
+                            if i == col:
+                                self.Z[row,i].ub = 1
+                                self.Z[row,i].lb = 1
+                            else:
+                                self.Z[row,i].ub = 0
+                                self.Z[row,i].lb = 0
+                        for i in range(self.branch_num):
+                            if i == row:
+                                self.Z[i,col].ub = 1
+                                self.Z[i,col].lb = 1
+                            else:
+                                self.Z[i,col].ub = 0
+                                self.Z[i,col].lb = 0
+        for k,v in map.items():
+            logging.debug('edge %d (interal) mapped to entry %d of b (internal), b=%0.3f', k,inv_b_map[sorted_b[v]],self.b[sorted_b[v]])
+
+
     def fix_Pi(self):
         for i,j in self.Pi.keys():
             if self.m._Pi[i,j] > 0.5:
@@ -302,6 +406,7 @@ class ZoneMILP(object):
                 self.Z[i,j].ub = 0
                 self.Z[i,j].lb = 0
         self.m._Zfixflag = True
+        self.m._parflag = True
 
     def unfix_Z(self):
         for i,j in self.Z.keys():
@@ -525,6 +630,7 @@ def fix_beta_and_rescale(G,Pg_out,Pd_out,b_out,params):
     m.addConstrs(alpha_d[i]*Pd_out[i] <= params['Pdmax'] for i in Pd_map);
     m.addConstrs(alpha_d[i]*Pd_out[i] <= alpha_g[i]*Pg_out[i]   for i in pd_ls_pg);
     m.addConstrs(alpha_d[i]*Pd_out[i] >= alpha_g[i]*Pg_out[i]   for i in pd_gr_pg);
+    m.addConstr(sum(alpha_g[i]*Pg_out[i] for i in Pg_map) == sum(Pg_out)); # constraint forcing the total load/gen to remain the same
     
     
     # Add $\Delta\theta$ constraints and $B\theta$ description of powerflow constraints.

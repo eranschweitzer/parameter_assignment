@@ -7,20 +7,33 @@ from scipy import sparse
 import pickle
 from helpers import load_data,power_injections
 import formulation as fm
-import ipdb
 
 
-def get_zones(G,Nmax,Nmin):
+def get_zones(G,Nmax,Nmin,debug=False):
+    
+    if debug:
+        iter = 1
+        writer = pd.ExcelWriter('python_debug.xlsx', engine='xlsxwriter')
+        
     sub_problem_nodes = [np.array(G.nodes())] 
     while np.any([len(i) > Nmax for i in sub_problem_nodes]):
         nbunch = sub_problem_nodes.pop(np.argmax([len(i) for i in sub_problem_nodes]))
         try:
-            fiedler_vect = nx.fiedler_vector(nx.Graph(G.subgraph(nbunch)))
+            Gtmp  = nx.Graph(G.subgraph(nbunch))
+            L = nx.laplacian_matrix(Gtmp, nodelist=nbunch).asfptype()
+            eigs, v = sparse.linalg.eigsh(L, k=2, which='SM')
+            fiedler_vect = v[:,1]
         except nx.NetworkXError:
-            ipdb.set_trace()
+            import ipdb; ipdb.set_trace()
         sub_problem_nodes.append(nbunch[np.where(fiedler_vect <= 0)[0]])
         sub_problem_nodes.append(nbunch[np.where(fiedler_vect  > 0)[0]])
-
+        
+        if debug:
+            df = pd.DataFrame({0: sub_problem_nodes[0]})
+            for k in range(1,len(sub_problem_nodes)):
+                df = pd.concat([df, pd.DataFrame({k: sub_problem_nodes[k]})], axis=1)
+            df.to_excel(writer,'iter%d' %(iter))
+            iter +=1 
         nbunch = None
         i = 0
         initial_length = len(sub_problem_nodes)
@@ -51,13 +64,15 @@ def get_zones(G,Nmax,Nmin):
                     except ValueError:
                         pass
                 if comp_id is None:
-                    ipdb.set_trace()
+                    import ipdb; ipdb.set_trace()
                 sub_problem_nodes[comp_id] = np.concatenate([sub_problem_nodes[comp_id],nbunch])
                 
             else:
                 sub_problem_nodes.append(nbunch)
             i += 1
-
+            
+    if debug:
+        writer.save()
     #return list(zip([G.subgraph(i) for i in sub_problem_nodes],[boundary_nodes(G,i) for i in sub_problem_nodes])) 
     return [G.subgraph(i) for i in sub_problem_nodes],[boundary_nodes(G,i) for i in sub_problem_nodes],[boundary_edge_map(G,i) for i in sub_problem_nodes]
 
@@ -140,7 +155,7 @@ if __name__=='__main__':
 #    zones,boundaries = get_zones(G,Nmax)
 #    eboundary,n2n = boundary_edges(G,zones)
 
-    bus_data,gen_data,branch_data = load_data('../cases/polish2383_wp')
+    bus_data,gen_data,branch_data = load_data('./cases/polish2383_wp')
     f_node = branch_data['F_BUS'].values
     t_node = branch_data['T_BUS'].values
     
@@ -149,7 +164,7 @@ if __name__=='__main__':
     
     
     Nmax = 400; Nmin = 50;
-    zones,boundaries,_,_= pickle.load(open('../polish_debug/zone_dump.pkl','rb'))
-    zones2,boundaries2,edge_maps = get_zones(G,Nmax,Nmin)
-    ipdb.set_trace()
+#    zones,boundaries,_,_= pickle.load(open('../polish_debug/zone_dump.pkl','rb'))
+    zones2,boundaries2,edge_maps = get_zones(G,Nmax,Nmin,debug=False)
+#    ipdb.set_trace()
     boundary_edges,n2n  = boundary_edges(G,zones)
