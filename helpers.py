@@ -5,12 +5,17 @@ import networkx as nx
 import pickle
 from scipy import stats, optimize, interpolate
 
-def var2mat(var,M):
+def var2mat(var,M,perm=None):
     """M is size as a tuple
     returns a dense numpy array of size M """
     out = np.zeros(M)
-    for key in var:
-        out[key] = var[key].X
+    if perm is None:
+        for key in var:
+            out[key] = var[key].X
+    else:
+        for i,j in perm.keys():
+            if perm[i,j].X > 0.5:
+                out[i] = var[j]
     return out
 
 def model_status(m):
@@ -413,3 +418,262 @@ def parallel_map(Gin):
             for e in range(len(ids)-1):
                 pmap[ids[e]] = ids[e+1]
     return pmap
+
+def multivar_power_sample(N,resd,resg,resf):
+    """ numbers """
+    Nintermediate = int(round(resf['intermediate']*N))
+    Ngen          = int(round(resf['gen']*N))
+    Ngenonly      = int(round(resf['gen_only']*N))
+    Nloadonly     = N - (Ngen + Nintermediate)
+    NQdPd        = int(round(resf['Qd_Pd']*N))
+    NQgPg        = int(round(resf['Qg_Pg']*Ngen))
+
+    x = {k:np.empty(N) for k in ['Pgmax','Pgmin','Qgmax','Pd','Qd']}
+    genlist  = ['Pgmax','Pgmin','Qgmax']
+    loadlist = ['Pd','Qd']
+    gensampdict = {resg['order'][j]:i for i,j in enumerate(resg['inkde'])}
+
+    QdPdcnt = 0
+    QgPgcnt = 0
+    ptr = 0
+    """ intermediate buses """
+    for i in range(Nintermediate):
+        for k in x:
+            x[k][ptr] = 0
+        ptr += 1
+
+    """ load only buses """
+    for i in range(Nloadonly):
+        s = resd['kde'].resample(1)
+        while np.any(s > 1.1*resd['max']) | np.any(s < resd['min']) | ((QdPdcnt >= NQdPd) and (s[1] > s[0])):
+            s = resd['kde'].resample(1)
+        x['Pd'][ptr] = s[0]
+        x['Qd'][ptr] = s[1]
+        if s[1] > s[0]:
+            QdPdcnt += 1
+        for k in genlist:
+            x[k][ptr] = 0
+        ptr += 1
+
+    """ gen and load buses """
+    for i in range(Ngen-Ngenonly):
+        #load part
+        s = resd['kde'].resample(1)
+        while np.any(s > 1.1*resd['max']) | np.any(s < resd['min']) | ((QdPdcnt >= NQdPd) and (s[1] > s[0])):
+            s = resd['kde'].resample(1)
+        x['Pd'][ptr] = s[0]
+        x['Qd'][ptr] = s[1]
+        if s[1] > s[0]:
+            QdPdcnt += 1
+        # gen part
+        s = resg['kde'].resample(1)
+        while np.any(s > 1.1*resg['max']) | np.any(s < 0.9*resg['min']) | ((QgPgcnt >= NQgPg) and (s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']])):
+            s = resg['kde'].resample(1)
+        if s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']]:
+            QgPgcnt += 1
+        for k,v in gensampdict.items():
+            x[k][ptr] = s[v]
+        #for j,k in enumerate(resg['inkde']):
+        #    x[resg['order'][k]][ptr] = s[j]
+        for k,v in resg['vdefault'].items():
+            x[k][ptr] = v
+        ptr += 1
+
+    """ gen only buses """
+    for i in range(Ngenonly):
+        s = resg['kde'].resample(1)
+        while np.any(s > 1.1*resg['max']) | np.any(s < 0.9*resg['min']) | ((QgPgcnt >= NQgPg) and (s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']])):
+            s = resg['kde'].resample(1)
+        if s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']]:
+            QgPgcnt += 1
+        for k,v in gensampdict.items():
+            x[k][ptr] = s[v]
+        for k,v in resg['vdefault'].items():
+            x[k][ptr] = v
+
+        for k in loadlist:
+            x[k][ptr] = 0
+        ptr += 1
+
+    """ rescale generator maximum values """
+    #pavg = sum(x['Pgmax'])/Ngen
+    #qavg = sum(x['Qgmax'])/Ngen
+    
+    pmax = 1.1*resg['max'][gensampdict['Pgmax']]
+    pmin = 0.9*resg['min'][gensampdict['Pgmax']]
+    qmax = 1.1*resg['max'][gensampdict['Qgmax']]
+    qmin = 0.9*resg['min'][gensampdict['Qgmax']]
+
+    x['Pgmax'],x['Qgmax'],x['Pgmin'] = maxval_rescale(x['Pgmax'],x['Qgmax'],x['Pgmin'],resf['PgAvg'],resf['QgAvg'],pmax,pmin,qmax,qmin,Ngen)
+    
+    #x['Pgmax'] = x['Pgmax']*(resf['PgAvg']/pavg)
+    #x['Qgmax'] = x['Qgmax']*(resf['QgAvg']/qavg)
+
+    return x
+
+def maxval_rescale(P,Q,Pmin,pavg,qavg,pmax,pmin,qmax,qmin,G):
+
+    import gurobipy as gb
+    m = gb.Model()
+    
+    Gmap = np.where(P>0)[0]
+    PgQ  = np.where((P>0) & (P > Q))[0]
+    PlQ  = np.where((P>0) & (P < Q))[0]
+    Pmax = max(P)
+    Qmax = max(Q)
+
+    wp = m.addVars(Gmap,lb=0)
+    #wq = m.addVars(Gmap,lb=0)
+    
+    m.addConstr(sum(wp[i]*P[i] for i in Gmap) == pavg*G)
+    #m.addConstr(sum(wq[i]*Q[i] for i in Gmap) == qavg*G)
+
+    m.addConstrs(wp[i]*P[i] <= pmax for i in Gmap)
+    m.addConstrs(wp[i]*P[i] >= pmin for i in Gmap)
+    #m.addConstrs(wq[i]*Q[i] <= qmax for i in Gmap)
+    #m.addConstrs(wq[i]*Q[i] >= qmin for i in Gmap)
+
+    #m.addConstrs(wp[i]*P[i] >= wq[i]*Q[i] for i in PgQ)
+    #m.addConstrs(wp[i]*P[i] <= wq[i]*Q[i] for i in PlQ)
+
+    obj = gb.QuadExpr()
+    for i in wp:
+        obj += (P[i]/Pmax)**2*(wp[i]- 1)*(wp[i] - 1)
+    #for i in wq:
+    #    obj += (Q[i]/Qmax)*(wq[i]- 1)*(wq[i] - 1)
+
+    m.setObjective(obj,gb.GRB.MINIMIZE)
+    m.optimize()
+    for i in Gmap:
+        P[i] = wp[i].X*P[i]
+        Q[i] = wp[i].X*Q[i]
+        Pmin[i] = wp[i].X*Pmin[i]
+    return P,Q,Pmin
+
+def multivar_z_sample(M,resz):
+    x = {k:np.empty(M) for i,k in resz['order'].items()}
+    zsampdict = {resz['order'][j]:i for i,j in enumerate(resz['inkde'])}
+    NRgX = int(round(resz['RgX']*M))
+    NBgX = int(round(resz['BgX']*M))
+    B0   = int(round(resz['b0']*M))
+
+    RgXcnt = 0
+    BgXcnt = 0
+    for i in range(B0):
+        s = resz['kde'].resample(1)
+        while np.any(s > resz['max']) | np.any(s < resz['min']) | ((RgXcnt >= NRgX) and (s[zsampdict['r']] > s[zsampdict['x']])):
+            s = resz['kde'].resample(1)
+        if s[zsampdict['r']] > s[zsampdict['x']]:
+            RgXcnt += 1
+        for k in ['r','x']:
+            x[k][i] = s[zsampdict[k]]
+        x['b'][i] = 0
+
+    for i in range(B0,M):
+        s = resz['kde'].resample(1)
+        while np.any(s > resz['max']) | np.any(s < resz['min']) | ((RgXcnt >= NRgX) and (s[zsampdict['r']] > s[zsampdict['x']])) | ((BgXcnt >= NBgX) and (s[zsampdict['b']] > s[zsampdict['x']])):
+            s = resz['kde'].resample(1)
+        if s[zsampdict['r']] > s[zsampdict['x']]:
+            RgXcnt += 1
+        if s[zsampdict['b']] > s[zsampdict['x']]:
+            BgXcnt += 1
+        for k,v in zsampdict.items():
+            x[k][i] = s[v]
+        for k,v in resz['vdefault'].items():
+            x[k][i] = v
+    
+    if 'b' in zsampdict:
+        bmax = resz['max'][zsampdict['b']]
+        bmin = resz['min'][zsampdict['b']]
+    else:
+        bmax = 0; bmin = 0
+    x['r'],x['x'],x['b'] = z_rescale(x['r'],x['x'],x['b'],resz['xmean'],resz['bmean'],resz['max'][zsampdict['x']], resz['min'][zsampdict['x']],bmax,bmin,M)
+    return x
+
+def z_rescale(r,x,b,xmean,bmean,xmax,xmin,bmax,bmin,M):
+    import gurobipy as gb
+    m = gb.Model()
+    
+    Xmax = max(x)
+    Bmin = min(b[b>0])
+    Bmax = max(b)
+    xmap = np.where(x !=0 )[0]
+    bmap = np.where(b !=0 )[0]
+    BlX  = np.where( b < x)[0]
+    wx = m.addVars(xmap,lb=0)
+    wb = m.addVars(xmap,lb=0)
+
+    m.addConstr( sum(wx[i]*x[i] for i in xmap) == xmean*M)
+    m.addConstr( sum(wb[i]*b[i] for i in xmap) == bmean*M)
+    m.addConstrs(wx[i]*x[i] <= xmax for i in xmap)
+    m.addConstrs(wx[i]*x[i] >= xmin for i in xmap)
+    m.addConstrs(wb[i]*b[i] <= bmax for i in xmap)
+    m.addConstrs(wb[i]*b[i] >= bmin for i in xmap)
+    m.addConstrs(wb[i]*b[i] >= Bmin for i in bmap)
+    m.addConstrs(wb[i] <= wx[i] for i in BlX)
+
+    obj = gb.QuadExpr()
+    for i in xmap:
+        obj += (Xmax/x[i])*(wx[i] - 1)*(wx[i] - 1)
+        obj += (Bmax/max(b[i],Bmin))*(wb[i] - 1)*(wb[i] - 1)
+
+    m.setObjective(obj,gb.GRB.MINIMIZE)
+    m.optimize()
+    for i in range(M):
+        r[i] = wx[i].X*r[i]
+        x[i] = wx[i].X*x[i]
+        b[i] = wb[i].X*b[i]
+    return r,x,b
+
+def Yparts(r,x,b=None,tau=None,phi=None):
+    """ Form vectors corresponding to the primitive admittance matricesi
+    yff = (ys + j*b/2)/tau^2
+    yft = -ys*exp(j*phi)/tau = -(gs + j*bs)*[cos(phi) + j*sin(phi)]/tau
+    ytf = -ys*exp(-jphi)/tau = -(gs + j*bs)*[cos(phi) - j*sin(phi)]/tau
+    ytt = ys + j*b/2
+    """
+
+    if b is None:
+        b = np.zeros(len(x))
+    if tau is None:
+        tau = np.ones(len(x))
+    if phi is None:
+        phi = np.zeros(len(x))
+
+    gs =  r/(r**2 + x**2)
+    bs = -x/(r**2 + x**2)
+    
+    gff = gs/(tau**2); 
+    gft = (-gs*np.cos(phi) + bs*np.sin(phi))/tau
+    gtf = (-gs*np.cos(phi) - bs*np.sin(phi))/tau
+    gtt = gs
+
+    bff = (bs + b/2)/(tau**2)
+    bft = (-gs*np.sin(phi) - bs*np.cos(phi))/tau
+    btf = ( gs*np.sin(phi) - bs*np.cos(phi))/tau
+    btt = bs + b/2
+
+    return {'gff': gff, 'gft': gft, 'gtf':gtf, 'gtt':gtt, 'bff': bff, 'bft': bft, 'btf':btf, 'btt':btt}
+    
+
+
+
+def testing(*args):
+    import fit_inputs as ftin 
+    fname = args[0]
+    N     = int(args[1])
+    M     = int(args[2])
+    bus_data, gen_data, branch_data = load_data(fname)
+    resz = ftin.multivariate_z(branch_data,bw_method=0.01)
+    z    = multivar_z_sample(M,resz)
+    dfz  = pd.DataFrame(z)
+    import ipdb; ipdb.set_trace()
+    res = ftin.multivariate_power(bus_data,gen_data)
+    x = multivar_power_sample(N,*res)
+    df = pd.DataFrame(x)
+    import ipdb; ipdb.set_trace()
+    
+
+if __name__ == '__main__':
+   import sys
+   testing(*sys.argv[1:])

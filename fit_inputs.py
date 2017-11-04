@@ -59,9 +59,98 @@ def analyze_reactance_statistics(x, fit='pchip', print_out=True):
         print("%0.3g <= x <= %0.3g" %(vmin, vmax))
     return {'vmax': vmax, 'vmin': vmin, fit:fit_obj}
 
-def kde_fit(x):
+def multivariate_power(bus_data,gen_data,bw_method='scott'):
+
+    N = bus_data.shape[0]
+    """ Load """
+    resd = {}
+    resd['kde'] = kde_fit(bus_data.loc[:,['PD','QD']].values.transpose(), bw_method=bw_method)
+    resd['max'] = bus_data.loc[:,['PD','QD']].max(axis=0).values
+    resd['min'] = bus_data.loc[:,['PD','QD']].min(axis=0).values
+
+    """ gen """
+    order = dict(zip(range(3),['Pgmax','Pgmin','Qgmax']))
+    inkde = list(range(3))
+    vdefault = {}
+    x = {}
+    genmap = dict(zip(gen_data['GEN_BUS'].unique(),range(len(gen_data['GEN_BUS'].unique()))))
+    GBnum = len(genmap) 
+    x['Pgmax'] = np.zeros(GBnum)
+    x['Pgmin'] = np.zeros(GBnum)
+    x['Qgmax'] = np.zeros(GBnum)
+    for bus,pmax,pmin,qmax,status in zip(gen_data['GEN_BUS'],gen_data['PMAX'],gen_data['PMIN'],gen_data['QMAX'],gen_data['GEN_STATUS']):
+        if status > 0:
+            x['Pgmax'][genmap[bus]] += pmax
+            x['Pgmin'][genmap[bus]] = np.minimum(x['Pgmin'][genmap[bus]],pmin)
+            x['Qgmax'][genmap[bus]] += qmax
+    for i in range(3):
+        if np.all(x[order[i]] == x[order[i]][0]):
+            vdefault[order[i]] = x[order[i]][0]
+            x.pop(order[i],None)
+            inkde.pop(i)
+    resg = {}
+    resg['kde'] = kde_fit(np.vstack((x[order[i]] for i in inkde )), bw_method=bw_method)
+    resg['max'] = np.array([np.max(x[order[i]]) for i in inkde])
+    resg['min'] = np.array([np.min(x[order[i]]) for i in inkde])
+    resg['order'] = order
+    resg['inkde'] = inkde
+    resg['vdefault'] = vdefault
+    
+    resf = {}
+    resf['intermediate'] = sum(~bus_data['BUS_I'].isin(gen_data['GEN_BUS']) & np.all(bus_data.loc[:,['PD','QD']] == 0,axis=1))/N
+    resf['gen']          = GBnum/N
+    resf['gen_only']     = sum(bus_data['BUS_I'].isin(gen_data['GEN_BUS']) & np.all(bus_data.loc[:,['PD','QD']] == 0,axis=1))/N
+    resf['Qd_Pd']        = sum(bus_data['QD'] > bus_data['PD'])/N
+    resf['Qg_Pg']        = sum(gen_data['QMAX'] > gen_data['PMAX'])/GBnum
+    resf['PgAvg']        = gen_data['PMAX'].sum()/GBnum
+    resf['QgAvg']        = gen_data['QMAX'].sum()/GBnum
+
+    return resd,resg,resf
+
+def multivariate_z(branch_data,bw_method='scott'):
+    order = dict(zip(range(3),['r','x','b']))
+    inkde = list(range(3))
+    vdefault = {}
+    M = sum(branch_data.loc[:,'BR_STATUS'] > 0)
+    x = {}
+    for i,k in order.items():
+        x[k] = np.empty(M)
+    ptr = 0
+    for R,X,B,status in zip(branch_data['BR_R'], branch_data['BR_X'], branch_data['BR_B'], branch_data['BR_STATUS']):
+        if status > 0:
+            x['r'][ptr] = R; x['x'][ptr] = X ; x['b'][ptr] = B
+            ptr += 1
+    res = {}
+    for i in range(3):
+        if np.all(x[order[i]] == x[order[i]][0]):
+            vdefault[order[i]] = x[order[i]][0]
+            x.pop(order[i],None)
+            inkde.pop(i)
+    res = {}
+    res['kde']      = kde_fit(np.vstack(x[order[i]] for i in inkde), bw_method=bw_method)
+    res['max']      = np.array([np.max(x[order[i]]) for i in inkde])
+    res['min']      = np.array([np.min(x[order[i]]) for i in inkde])
+    res['order']    = order
+    res['inkde']    = inkde
+    res['vdefault'] = vdefault
+    res['xmean']    = np.mean(x['x'])
+    try:
+        res['RgX']  = sum(x['r'][i] > x['x'][i] for i in range(M))/M
+    except KeyError:
+        res['RgX']  = 0
+    try:
+        res['BgX']  = sum(x['b'][i] > x['x'][i] for i in range(M))/M
+        res['b0']       = sum(x['b'] == 0)/M
+        res['bmean']    = np.mean(x['b'])
+    except KeyError:
+        res['BgX']   = 0
+        res['b0']    = 0
+        res['bmean'] = 0
+    return res
+
+def kde_fit(x,bw_method='scott'):
     """ returns a kde object fit to the values in x """
-    return stats.gaussian_kde(x)
+    return stats.gaussian_kde(x,bw_method=bw_method)
 
 def pchip_test(data,str):
     import matplotlib.pyplot as plt
@@ -112,6 +201,8 @@ if __name__ == "__main__":
     except IndexError:
         fit = 'pchip'
     bus_data, gen_data, branch_data = hlp.load_data(fname)
+    multivariate_power(bus_data,gen_data)
+    sys.exit(0)
     Pd = bus_data['PD'].values
     x = branch_data['BR_X'].values
     Pg = np.zeros(bus_data.shape[0])
