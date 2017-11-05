@@ -78,8 +78,8 @@ def savempc(dataname,savename):
         bus[i,8] = data['theta'][i]*180/np.pi # bus angle
         bus[i,9] = 220                     # base kV
         bus[i,10]= 1                       # Zone
-        bus[i,11]= 0.9                     # minimum voltage magnitude (p.u.)
-        bus[i,12]= 1.1                     # maximum voltage magnitude (p.u.)
+        bus[i,11]= 1.1                     # maximum voltage magnitude (p.u.)
+        bus[i,12]= 0.9                     # minimum voltage magnitude (p.u.)
 
 
     io.savemat(savename,{'baseMVA':float(100),'bus':bus,'branch':branch,'gen':gen})
