@@ -419,6 +419,13 @@ def parallel_map(Gin):
                 pmap[ids[e]] = ids[e+1]
     return pmap
 
+def multivar_kde_sample(kde,actual_vars=False):
+    if actual_vars:
+        I = np.random.randint(0,kde.n)
+        return kde.dataset[:,I]
+    else:
+        return kde.resample(1)
+
 def multivar_power_sample(N,resd,resg,resf):
     """ numbers """
     Nintermediate = int(round(resf['intermediate']*N))
@@ -428,93 +435,104 @@ def multivar_power_sample(N,resd,resg,resf):
     NQdPd        = int(round(resf['Qd_Pd']*N))
     NQgPg        = int(round(resf['Qg_Pg']*Ngen))
 
-    x = {k:np.empty(N) for k in ['Pgmax','Pgmin','Qgmax','Pd','Qd']}
-    genlist  = ['Pgmax','Pgmin','Qgmax']
-    loadlist = ['Pd','Qd']
-    gensampdict = {resg['order'][j]:i for i,j in enumerate(resg['inkde'])}
+    while True:
+        x = {k:np.empty(N) for k in ['Pgmax','Pgmin','Qgmax','Pd','Qd']}
+        genlist  = ['Pgmax','Pgmin','Qgmax']
+        loadlist = ['Pd','Qd']
+        gensampdict = {resg['order'][j]:i for i,j in enumerate(resg['inkde'])}
 
-    QdPdcnt = 0
-    QgPgcnt = 0
-    ptr = 0
-    """ intermediate buses """
-    for i in range(Nintermediate):
-        for k in x:
-            x[k][ptr] = 0
-        ptr += 1
+        QdPdcnt = 0
+        QgPgcnt = 0
+        ptr = 0
+        """ intermediate buses """
+        for i in range(Nintermediate):
+            for k in x:
+                x[k][ptr] = 0
+            ptr += 1
 
-    """ load only buses """
-    for i in range(Nloadonly):
-        s = resd['kde'].resample(1)
-        while np.any(s > 1.1*resd['max']) | np.any(s < resd['min']) | ((QdPdcnt >= NQdPd) and (s[1] > s[0])):
-            s = resd['kde'].resample(1)
-        x['Pd'][ptr] = s[0]
-        x['Qd'][ptr] = s[1]
-        if s[1] > s[0]:
-            QdPdcnt += 1
-        for k in genlist:
-            x[k][ptr] = 0
-        ptr += 1
+        """ load only buses """
+        for i in range(Nloadonly):
+            #s = resd['kde'].resample(1)
+            s = multivar_kde_sample(resd['kde'],actual_vars=resd['actual_vars'])
+            while np.any(s > 1.1*resd['max']) | np.any(s < resd['min']) | ((QdPdcnt >= NQdPd) and (s[1] > s[0])):
+                #s = resd['kde'].resample(1)
+                s = multivar_kde_sample(resd['kde'],actual_vars=resd['actual_vars'])
+            x['Pd'][ptr] = s[0]
+            x['Qd'][ptr] = s[1]
+            if s[1] > s[0]:
+                QdPdcnt += 1
+            for k in genlist:
+                x[k][ptr] = 0
+            ptr += 1
 
-    """ gen and load buses """
-    for i in range(Ngen-Ngenonly):
-        #load part
-        s = resd['kde'].resample(1)
-        while np.any(s > 1.1*resd['max']) | np.any(s < resd['min']) | ((QdPdcnt >= NQdPd) and (s[1] > s[0])):
-            s = resd['kde'].resample(1)
-        x['Pd'][ptr] = s[0]
-        x['Qd'][ptr] = s[1]
-        if s[1] > s[0]:
-            QdPdcnt += 1
-        # gen part
-        s = resg['kde'].resample(1)
-        while np.any(s > 1.1*resg['max']) | np.any(s < 0.9*resg['min']) | ((QgPgcnt >= NQgPg) and (s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']])):
-            s = resg['kde'].resample(1)
-        if s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']]:
-            QgPgcnt += 1
-        for k,v in gensampdict.items():
-            x[k][ptr] = s[v]
-        #for j,k in enumerate(resg['inkde']):
-        #    x[resg['order'][k]][ptr] = s[j]
-        for k,v in resg['vdefault'].items():
-            x[k][ptr] = v
-        ptr += 1
+        """ gen and load buses """
+        for i in range(Ngen-Ngenonly):
+            #load part
+            #s = resd['kde'].resample(1)
+            s = multivar_kde_sample(resd['kde'],actual_vars=resd['actual_vars'])
+            while np.any(s > 1.1*resd['max']) | np.any(s < resd['min']) | ((QdPdcnt >= NQdPd) and (s[1] > s[0])):
+                #s = resd['kde'].resample(1)
+                s = multivar_kde_sample(resd['kde'],actual_vars=resd['actual_vars'])
+            x['Pd'][ptr] = s[0]
+            x['Qd'][ptr] = s[1]
+            if s[1] > s[0]:
+                QdPdcnt += 1
+            # gen part
+            #s = resg['kde'].resample(1)
+            s = multivar_kde_sample(resg['kde'],actual_vars=resg['actual_vars'])
+            while np.any(s > 1.1*resg['max']) | np.any(s < 0.9*resg['min']) | ((QgPgcnt >= NQgPg) and (s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']])):
+                #s = resg['kde'].resample(1)
+                s = multivar_kde_sample(resg['kde'],actual_vars=resg['actual_vars'])
+            if s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']]:
+                QgPgcnt += 1
+            for k,v in gensampdict.items():
+                x[k][ptr] = s[v]
+            #for j,k in enumerate(resg['inkde']):
+            #    x[resg['order'][k]][ptr] = s[j]
+            for k,v in resg['vdefault'].items():
+                x[k][ptr] = v
+            ptr += 1
 
-    """ gen only buses """
-    for i in range(Ngenonly):
-        s = resg['kde'].resample(1)
-        while np.any(s > 1.1*resg['max']) | np.any(s < 0.9*resg['min']) | ((QgPgcnt >= NQgPg) and (s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']])):
-            s = resg['kde'].resample(1)
-        if s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']]:
-            QgPgcnt += 1
-        for k,v in gensampdict.items():
-            x[k][ptr] = s[v]
-        for k,v in resg['vdefault'].items():
-            x[k][ptr] = v
+        """ gen only buses """
+        for i in range(Ngenonly):
+            #s = resg['kde'].resample(1)
+            s = multivar_kde_sample(resg['kde'],actual_vars=resg['actual_vars'])
+            while np.any(s > 1.1*resg['max']) | np.any(s < 0.9*resg['min']) | ((QgPgcnt >= NQgPg) and (s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']])):
+                #s = resg['kde'].resample(1)
+                s = multivar_kde_sample(resg['kde'],actual_vars=resg['actual_vars'])
+            if s[gensampdict['Qgmax']] > s[gensampdict['Pgmax']]:
+                QgPgcnt += 1
+            for k,v in gensampdict.items():
+                x[k][ptr] = s[v]
+            for k,v in resg['vdefault'].items():
+                x[k][ptr] = v
 
-        for k in loadlist:
-            x[k][ptr] = 0
-        ptr += 1
+            for k in loadlist:
+                x[k][ptr] = 0
+            ptr += 1
 
-    """ rescale generator maximum values """
-    #pavg = sum(x['Pgmax'])/Ngen
-    #qavg = sum(x['Qgmax'])/Ngen
-    
-    pmax = 1.1*resg['max'][gensampdict['Pgmax']]
-    pmin = 0.9*resg['min'][gensampdict['Pgmax']]
-    qmax = 1.1*resg['max'][gensampdict['Qgmax']]
-    qmin = 0.9*resg['min'][gensampdict['Qgmax']]
+        """ rescale generator maximum values """
+        #pavg = sum(x['Pgmax'])/Ngen
+        #qavg = sum(x['Qgmax'])/Ngen
+        
+        pmax = 1.1*resg['max'][gensampdict['Pgmax']]
+        pmin = 0.9*resg['min'][gensampdict['Pgmax']]
+        qmax = 1.1*resg['max'][gensampdict['Qgmax']]
+        qmin = 0.9*resg['min'][gensampdict['Qgmax']]
 
-    x['Pgmax'],x['Qgmax'],x['Pgmin'] = maxval_rescale(x['Pgmax'],x['Qgmax'],x['Pgmin'],resf['PgAvg'],resf['QgAvg'],pmax,pmin,qmax,qmin,Ngen)
-    
-    #x['Pgmax'] = x['Pgmax']*(resf['PgAvg']/pavg)
-    #x['Qgmax'] = x['Qgmax']*(resf['QgAvg']/qavg)
-
+        flag,x['Pgmax'],x['Qgmax'],x['Pgmin'] = maxval_rescale(x['Pgmax'],x['Qgmax'],x['Pgmin'],resf['PgAvg'],resf['QgAvg'],pmax,pmin,qmax,qmin,Ngen)
+ 
+        #x['Pgmax'] = x['Pgmax']*(resf['PgAvg']/pavg)
+        #x['Qgmax'] = x['Qgmax']*(resf['QgAvg']/qavg)
+        if flag:
+            break
     return x
 
 def maxval_rescale(P,Q,Pmin,pavg,qavg,pmax,pmin,qmax,qmin,G):
 
     import gurobipy as gb
     m = gb.Model()
+    m.setParam('LogToConsole',0)
     
     Gmap = np.where(P>0)[0]
     PgQ  = np.where((P>0) & (P > Q))[0]
@@ -544,55 +562,61 @@ def maxval_rescale(P,Q,Pmin,pavg,qavg,pmax,pmin,qmax,qmin,G):
 
     m.setObjective(obj,gb.GRB.MINIMIZE)
     m.optimize()
-    for i in Gmap:
-        P[i] = wp[i].X*P[i]
-        Q[i] = wp[i].X*Q[i]
-        Pmin[i] = wp[i].X*Pmin[i]
-    return P,Q,Pmin
+    flag = m.status == 2
+    if flag:
+        for i in Gmap:
+            P[i] = wp[i].X*P[i]
+            Q[i] = wp[i].X*Q[i]
+            Pmin[i] = wp[i].X*Pmin[i]
+    return flag,P,Q,Pmin
 
 def multivar_z_sample(M,resz):
-    x = {k:np.empty(M) for i,k in resz['order'].items()}
-    zsampdict = {resz['order'][j]:i for i,j in enumerate(resz['inkde'])}
-    NRgX = int(round(resz['RgX']*M))
-    NBgX = int(round(resz['BgX']*M))
-    B0   = int(round(resz['b0']*M))
+    while True:
+        x = {k:np.empty(M) for i,k in resz['order'].items()}
+        zsampdict = {resz['order'][j]:i for i,j in enumerate(resz['inkde'])}
+        NRgX = int(round(resz['RgX']*M))
+        NBgX = int(round(resz['BgX']*M))
+        B0   = int(round(resz['b0']*M))
 
-    RgXcnt = 0
-    BgXcnt = 0
-    for i in range(B0):
-        s = resz['kde'].resample(1)
-        while np.any(s > resz['max']) | np.any(s < resz['min']) | ((RgXcnt >= NRgX) and (s[zsampdict['r']] > s[zsampdict['x']])):
+        RgXcnt = 0
+        BgXcnt = 0
+        for i in range(B0):
             s = resz['kde'].resample(1)
-        if s[zsampdict['r']] > s[zsampdict['x']]:
-            RgXcnt += 1
-        for k in ['r','x']:
-            x[k][i] = s[zsampdict[k]]
-        x['b'][i] = 0
+            while np.any(s > resz['max']) | np.any(s < resz['min']) | ((RgXcnt >= NRgX) and (s[zsampdict['r']] > s[zsampdict['x']])):
+                s = resz['kde'].resample(1)
+            if s[zsampdict['r']] > s[zsampdict['x']]:
+                RgXcnt += 1
+            for k in ['r','x']:
+                x[k][i] = s[zsampdict[k]]
+            x['b'][i] = 0
 
-    for i in range(B0,M):
-        s = resz['kde'].resample(1)
-        while np.any(s > resz['max']) | np.any(s < resz['min']) | ((RgXcnt >= NRgX) and (s[zsampdict['r']] > s[zsampdict['x']])) | ((BgXcnt >= NBgX) and (s[zsampdict['b']] > s[zsampdict['x']])):
+        for i in range(B0,M):
             s = resz['kde'].resample(1)
-        if s[zsampdict['r']] > s[zsampdict['x']]:
-            RgXcnt += 1
-        if s[zsampdict['b']] > s[zsampdict['x']]:
-            BgXcnt += 1
-        for k,v in zsampdict.items():
-            x[k][i] = s[v]
-        for k,v in resz['vdefault'].items():
-            x[k][i] = v
-    
-    if 'b' in zsampdict:
-        bmax = resz['max'][zsampdict['b']]
-        bmin = resz['min'][zsampdict['b']]
-    else:
-        bmax = 0; bmin = 0
-    x['r'],x['x'],x['b'] = z_rescale(x['r'],x['x'],x['b'],resz['xmean'],resz['bmean'],resz['max'][zsampdict['x']], resz['min'][zsampdict['x']],bmax,bmin,M)
+            while np.any(s > resz['max']) | np.any(s < resz['min']) | ((RgXcnt >= NRgX) and (s[zsampdict['r']] > s[zsampdict['x']])) | ((BgXcnt >= NBgX) and (s[zsampdict['b']] > s[zsampdict['x']])):
+                s = resz['kde'].resample(1)
+            if s[zsampdict['r']] > s[zsampdict['x']]:
+                RgXcnt += 1
+            if s[zsampdict['b']] > s[zsampdict['x']]:
+                BgXcnt += 1
+            for k,v in zsampdict.items():
+                x[k][i] = s[v]
+            for k,v in resz['vdefault'].items():
+                x[k][i] = v
+        
+        if 'b' in zsampdict:
+            bmax = resz['max'][zsampdict['b']]
+            bmin = resz['min'][zsampdict['b']]
+        else:
+            bmax = 0; bmin = 0
+        flag, x['r'],x['x'],x['b'] = z_rescale(x['r'],x['x'],x['b'],resz['xmean'],resz['bmean'],resz['max'][zsampdict['x']], resz['min'][zsampdict['x']],bmax,bmin,M)
+        if flag:
+            break
     return x
 
 def z_rescale(r,x,b,xmean,bmean,xmax,xmin,bmax,bmin,M):
     import gurobipy as gb
     m = gb.Model()
+    m.setParam('LogToConsole',0)
     
     Xmax = max(x)
     Bmin = min(b[b>0])
@@ -619,11 +643,13 @@ def z_rescale(r,x,b,xmean,bmean,xmax,xmin,bmax,bmin,M):
 
     m.setObjective(obj,gb.GRB.MINIMIZE)
     m.optimize()
-    for i in range(M):
-        r[i] = wx[i].X*r[i]
-        x[i] = wx[i].X*x[i]
-        b[i] = wb[i].X*b[i]
-    return r,x,b
+    flag = m.status == 2
+    if flag:
+        for i in range(M):
+            r[i] = wx[i].X*r[i]
+            x[i] = wx[i].X*x[i]
+            b[i] = wb[i].X*b[i]
+    return flag,r,x,b
 
 def Yparts(r,x,b=None,tau=None,phi=None):
     """ Form vectors corresponding to the primitive admittance matricesi
@@ -655,7 +681,12 @@ def Yparts(r,x,b=None,tau=None,phi=None):
 
     return {'gff': gff, 'gft': gft, 'gtf':gtf, 'gtt':gtt, 'bff': bff, 'bft': bft, 'btf':btf, 'btt':btt}
     
-
+def bigM_calc(Y,fmax,umax,dmax,margin=1.1):
+    Mpf  = fmax + max(Y['gff'] + Y['gft'])*(1+umax) + max(np.abs(Y['bft']))*dmax
+    Mqf  = fmax + max(Y['bff'] + Y['bft'])*(1+umax) + max(np.abs(Y['gft']))*dmax
+    Mpt  = fmax + max(Y['gtt'] + Y['gtf'])*(1+umax) + max(np.abs(Y['btf']))*dmax
+    Mqt  = fmax + max(Y['btt'] + Y['btf'])*(1+umax) + max(np.abs(Y['gtf']))*dmax
+    return max(Mpf,Mqf,Mpt,Mqt)*margin
 
 
 def testing(*args):

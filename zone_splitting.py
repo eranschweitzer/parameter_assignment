@@ -40,6 +40,7 @@ def get_zones(G,Nmax,Nmin,debug=False):
         while i < initial_length:
             nbunch = sub_problem_nodes.pop(0)
             if nx.number_connected_components(nx.Graph(G.subgraph(nbunch))) > 1:
+                print('Zone Splitting Warning: disconnected component found')
                 for cnodes in sorted(nx.connected_components(nx.Graph(G.subgraph(nbunch))), key=len, reverse=True):
                     sub_problem_nodes.append(np.array(list(cnodes)))
             else:

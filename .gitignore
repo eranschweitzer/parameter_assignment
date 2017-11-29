@@ -1,3 +1,5 @@
+*.mat
+from_syngrid/*
 cases/*
 logs/*
 .DS_Store

@@ -3,6 +3,10 @@ import numpy as np
 import networkx as nx
 import pandas as pd
 import helpers as hlp
+import logging
+
+FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
+logging.basicConfig(format=FORMAT,level=logging.DEBUG,datefmt='%H:%M:%S')
 
 def rescheck(data):
     
@@ -45,22 +49,26 @@ def rescheck(data):
     Qlim['max'] = ( data['Qg']*100 - data['Qgmax'])> 1e-6
     Qlim['min'] = (-data['Qgmax'] - data['Qg']*100)> 1e-6
 
-    print('Total load: %0.4f MW, Total gen: %0.4f MW' %(100*sum(data['Pd']),100*sum(data['Pg'])))
-    print('Total load: %0.4f MVar, Total gen: %0.4f MVar' %(100*sum(data['Qd']),100*sum(data['Qg'])))
-    print('Losses [MW]: %0.3g, %0.3f%%' %(100*(sum(data['Pg'] - data['Pd'])), sum(data['Pg'] - data['Pd'])/sum(data['Pg'])))
-    print('Maximum |Pf|: %0.4f MW,   Maximum |Pt|: %0.4f MW' %(100*max(np.abs(data['Pf'])), 100*max(np.abs(data['Pt']))))
-    print('Maximum |Qf|: %0.4f MVar, Maximum |Qt|: %0.4f Mvar' %(100*max(np.abs(data['Qf'])), 100*max(np.abs(data['Qt']))))
-    print('Maximum Pf error: %0.3g' %(max(np.abs(data['Pf'] - Pf))))
-    print('Maximum Qf error: %0.3g' %(max(np.abs(data['Qf'] - Qf))))
-    print('Maximum Pt error: %0.3g' %(max(np.abs(data['Pt'] - Pt))))
-    print('Maximum Qt error: %0.3g' %(max(np.abs(data['Qt'] - Qt))))
-    print('Maximum |P balance|: %0.3g' %( max(np.abs(balance['P']))))
-    print('Maximum |Q balance|: %0.3g' %( max(np.abs(balance['Q']))))
-    print('Maximum angle difference: %0.2f deg' %(max(np.abs(delta))*180/np.pi))
-    print('Maximum differentce between phi and delta^2/2: %0.3g' %(max(np.abs(phierr))))
-    print('Maximum v: %0.3f, Minimum v: %0.3f' %( max(np.exp(data['u'])), min(np.exp(data['u']))))
-    print('Pmax violations: %d, Pmin violations: %d' %(sum(Plim['max']), sum(Plim['min'])))
-    print('Qmax violations: %d, Qmin violations: %d' %(sum(Qlim['max']), sum(Qlim['min'])))
+    
+    logging.info('+++++++++++++++++++++++++++++++')
+    logging.info('Solution Verification')
+    logging.info('+++++++++++++++++++++++++++++++')
+    logging.info('Total load: %0.4f MW, Total gen: %0.4f MW' ,100*sum(data['Pd']),100*sum(data['Pg']))
+    logging.info('Total load: %0.4f MVar, Total gen: %0.4f MVar' ,100*sum(data['Qd']),100*sum(data['Qg']))
+    logging.info('Losses [MW]: %0.3g, %0.3f%%' ,100*(sum(data['Pg'] - data['Pd'])), 100*sum(data['Pg'] - data['Pd'])/sum(data['Pd']))
+    logging.info('Maximum |Pf|: %0.4f MW,   Maximum |Pt|: %0.4f MW' ,100*max(np.abs(data['Pf'])), 100*max(np.abs(data['Pt'])))
+    logging.info('Maximum |Qf|: %0.4f MVar, Maximum |Qt|: %0.4f Mvar' ,100*max(np.abs(data['Qf'])), 100*max(np.abs(data['Qt'])))
+    logging.info('Maximum Pf error: %0.3g' ,max(np.abs(data['Pf'] - Pf)))
+    logging.info('Maximum Qf error: %0.3g' ,max(np.abs(data['Qf'] - Qf)))
+    logging.info('Maximum Pt error: %0.3g' ,max(np.abs(data['Pt'] - Pt)))
+    logging.info('Maximum Qt error: %0.3g' ,max(np.abs(data['Qt'] - Qt)))
+    logging.info('Maximum |P balance|: %0.3g' , max(np.abs(balance['P'])))
+    logging.info('Maximum |Q balance|: %0.3g' , max(np.abs(balance['Q'])))
+    logging.info('Maximum angle difference: %0.2f deg' ,max(np.abs(delta))*180/np.pi)
+    logging.info('Maximum differentce between phi and delta^2/2: %0.3g' ,max(np.abs(phierr)))
+    logging.info('Maximum v: %0.3f, Minimum v: %0.3f' , max(np.exp(data['u'])), min(np.exp(data['u'])))
+    logging.info('Pmax violations: %d, Pmin violations: %d' ,sum(Plim['max']), sum(Plim['min']))
+    logging.info('Qmax violations: %d, Qmin violations: %d' ,sum(Qlim['max']), sum(Qlim['min']))
 
 if __name__ == '__main__':
     import sys

@@ -59,7 +59,7 @@ def analyze_reactance_statistics(x, fit='pchip', print_out=True):
         print("%0.3g <= x <= %0.3g" %(vmin, vmax))
     return {'vmax': vmax, 'vmin': vmin, fit:fit_obj}
 
-def multivariate_power(bus_data,gen_data,bw_method='scott'):
+def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,actual_vars_g=True):
 
     N = bus_data.shape[0]
     """ Load """
@@ -67,6 +67,7 @@ def multivariate_power(bus_data,gen_data,bw_method='scott'):
     resd['kde'] = kde_fit(bus_data.loc[:,['PD','QD']].values.transpose(), bw_method=bw_method)
     resd['max'] = bus_data.loc[:,['PD','QD']].max(axis=0).values
     resd['min'] = bus_data.loc[:,['PD','QD']].min(axis=0).values
+    resd['actual_vars'] = actual_vars_d
 
     """ gen """
     order = dict(zip(range(3),['Pgmax','Pgmin','Qgmax']))
@@ -95,6 +96,7 @@ def multivariate_power(bus_data,gen_data,bw_method='scott'):
     resg['order'] = order
     resg['inkde'] = inkde
     resg['vdefault'] = vdefault
+    resg['actual_vars'] = actual_vars_g
     
     resf = {}
     resf['intermediate'] = sum(~bus_data['BUS_I'].isin(gen_data['GEN_BUS']) & np.all(bus_data.loc[:,['PD','QD']] == 0,axis=1))/N
@@ -201,7 +203,8 @@ if __name__ == "__main__":
     except IndexError:
         fit = 'pchip'
     bus_data, gen_data, branch_data = hlp.load_data(fname)
-    multivariate_power(bus_data,gen_data)
+    resd,resg,resf = multivariate_power(bus_data,gen_data)
+    import ipdb; ipdb.set_trace()
     sys.exit(0)
     Pd = bus_data['PD'].values
     x = branch_data['BR_X'].values
