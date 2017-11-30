@@ -109,7 +109,7 @@ def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,a
 
     return resd,resg,resf
 
-def multivariate_z(branch_data,bw_method='scott'):
+def multivariate_z(branch_data,bw_method='scott',actual_vars=True):
     order = dict(zip(range(3),['r','x','b']))
     inkde = list(range(3))
     vdefault = {}
@@ -130,6 +130,7 @@ def multivariate_z(branch_data,bw_method='scott'):
             inkde.pop(i)
     res = {}
     res['kde']      = kde_fit(np.vstack(x[order[i]] for i in inkde), bw_method=bw_method)
+    res['actual_vars'] = actual_vars
     res['max']      = np.array([np.max(x[order[i]]) for i in inkde])
     res['min']      = np.array([np.min(x[order[i]]) for i in inkde])
     res['order']    = order

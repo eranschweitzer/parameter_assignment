@@ -419,9 +419,12 @@ def parallel_map(Gin):
                 pmap[ids[e]] = ids[e+1]
     return pmap
 
-def multivar_kde_sample(kde,actual_vars=False):
+def multivar_kde_sample(kde,actual_vars=False,cols=None):
     if actual_vars:
-        I = np.random.randint(0,kde.n)
+        if cols is None:
+            I = np.random.randint(0,kde.n)
+        else:
+            I = cols[np.random.randint(0,len(cols))]
         return kde.dataset[:,I]
     else:
         return kde.resample(1)
@@ -580,10 +583,16 @@ def multivar_z_sample(M,resz):
 
         RgXcnt = 0
         BgXcnt = 0
+        if resz['actual_vars']:
+            cols = np.where(resz['kde'].dataset[zsampdict['b'],:] == 0)[0]
+        else:
+            cols = None
         for i in range(B0):
-            s = resz['kde'].resample(1)
+            #s = resz['kde'].resample(1)
+            s = multivar_kde_sample(resz['kde'],actual_vars=resz['actual_vars'],cols=cols)
             while np.any(s > resz['max']) | np.any(s < resz['min']) | ((RgXcnt >= NRgX) and (s[zsampdict['r']] > s[zsampdict['x']])):
-                s = resz['kde'].resample(1)
+                #s = resz['kde'].resample(1)
+                s = multivar_kde_sample(resz['kde'],actual_vars=resz['actual_vars'])
             if s[zsampdict['r']] > s[zsampdict['x']]:
                 RgXcnt += 1
             for k in ['r','x']:
@@ -591,9 +600,11 @@ def multivar_z_sample(M,resz):
             x['b'][i] = 0
 
         for i in range(B0,M):
-            s = resz['kde'].resample(1)
+            #s = resz['kde'].resample(1)
+            s = multivar_kde_sample(resz['kde'],actual_vars=resz['actual_vars'])
             while np.any(s > resz['max']) | np.any(s < resz['min']) | ((RgXcnt >= NRgX) and (s[zsampdict['r']] > s[zsampdict['x']])) | ((BgXcnt >= NBgX) and (s[zsampdict['b']] > s[zsampdict['x']])):
-                s = resz['kde'].resample(1)
+                #s = resz['kde'].resample(1)
+                s = multivar_kde_sample(resz['kde'],actual_vars=resz['actual_vars'])
             if s[zsampdict['r']] > s[zsampdict['x']]:
                 RgXcnt += 1
             if s[zsampdict['b']] > s[zsampdict['x']]:
