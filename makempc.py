@@ -3,6 +3,7 @@ import pickle
 from scipy import io
 
 def savempc(dataname,savename):
+
     data = pickle.load(open(dataname,'rb'))
 
     N = data['G'].number_of_nodes()
@@ -35,7 +36,7 @@ def savempc(dataname,savename):
     gidx = np.where(data['Pgmax'] > 0)[0]
     gen  = np.zeros((G,21))
     for i,g in enumerate(gidx):
-        gen[i,0] = g    # Generator Bus
+        gen[i,0] = g + 1    # Generator Bus
         if data['Pg'][g]*100 > 1:
             gen[i,1] = data['Pg'][g]*100 # Real power [MW]
             gen[i,2] = data['Qg'][g]*100 # Reactive power [MVar]
@@ -53,10 +54,13 @@ def savempc(dataname,savename):
         # the rest are opf related, neglected for now
 
     
+    ############
+    # BUS TYPES
+    ############
     # pick ref bus as largest capacity generator that is also on
-    ref = gen[np.argmax(gen[:,7]*gen[:,8]),0]
-    
-    pvbuses = gen[gen[:,7] > 0, 0]
+    ref     = gen[np.argmax(gen[:,7]*gen[:,8]),0] - 1
+    pvbuses = gen[gen[:,7] > 0, 0] - 1
+
     #############
     # Bus Matrix
     ############
@@ -81,8 +85,16 @@ def savempc(dataname,savename):
         bus[i,11]= 1.1                     # maximum voltage magnitude (p.u.)
         bus[i,12]= 0.9                     # minimum voltage magnitude (p.u.)
 
+    ##################
+    # Generator Cost
+    ##################
+    # for now all generators are given the same price and linear cost
+    gencost = np.zeros((G,6))
+    gencost[:,0] = 2        # polynomial cost function
+    gencost[:,3] = 2        # number of cost coefficients
+    gencost[:,4] = 10       # cost is (arbitrarily set to $10/MW
 
-    io.savemat(savename,{'baseMVA':float(100),'bus':bus,'branch':branch,'gen':gen})
+    io.savemat(savename,{'baseMVA':float(100),'bus':bus,'branch':branch,'gen':gen,'gencost':gencost})
 
 if __name__ == '__main__':
     import sys
