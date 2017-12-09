@@ -110,20 +110,20 @@ def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,a
     return resd,resg,resf
 
 def multivariate_z(branch_data,bw_method='scott',actual_vars=True):
-    order = dict(zip(range(3),['r','x','b']))
-    inkde = list(range(3))
+    order = dict(zip(range(4),['r','x','b','rate']))
+    inkde = list(range(4))
     vdefault = {}
     M = sum(branch_data.loc[:,'BR_STATUS'] > 0)
     x = {}
     for i,k in order.items():
         x[k] = np.empty(M)
     ptr = 0
-    for R,X,B,status in zip(branch_data['BR_R'], branch_data['BR_X'], branch_data['BR_B'], branch_data['BR_STATUS']):
+    for R,X,B,rate,status in zip(branch_data['BR_R'], branch_data['BR_X'], branch_data['BR_B'], branch_data['RATE_A'], branch_data['BR_STATUS']):
         if status > 0:
-            x['r'][ptr] = R; x['x'][ptr] = X ; x['b'][ptr] = B
+            x['r'][ptr] = R; x['x'][ptr] = X ; x['b'][ptr] = B; x['rate'][ptr] = rate;
             ptr += 1
     res = {}
-    for i in range(3):
+    for i in range(4):
         if np.all(x[order[i]] == x[order[i]][0]):
             vdefault[order[i]] = x[order[i]][0]
             x.pop(order[i],None)
@@ -204,9 +204,10 @@ if __name__ == "__main__":
     except IndexError:
         fit = 'pchip'
     bus_data, gen_data, branch_data = hlp.load_data(fname)
-    resd,resg,resf = multivariate_power(bus_data,gen_data)
+    resz = multivariate_z(branch_data)
     import ipdb; ipdb.set_trace()
     sys.exit(0)
+    resd,resg,resf = multivariate_power(bus_data,gen_data)
     Pd = bus_data['PD'].values
     x = branch_data['BR_X'].values
     Pg = np.zeros(bus_data.shape[0])

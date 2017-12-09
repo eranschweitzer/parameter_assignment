@@ -440,6 +440,8 @@ def multivar_power_sample(N,resd,resg,resf):
 
     while True:
         x = {k:np.empty(N) for k in ['Pgmax','Pgmin','Qgmax','Pd','Qd']}
+        x['actual_vars_d'] = resd['actual_vars']
+        x['actual_vars_g'] = resg['actual_vars']
         genlist  = ['Pgmax','Pgmin','Qgmax']
         loadlist = ['Pd','Qd']
         gensampdict = {resg['order'][j]:i for i,j in enumerate(resg['inkde'])}
@@ -515,19 +517,22 @@ def multivar_power_sample(N,resd,resg,resf):
             ptr += 1
 
         """ rescale generator maximum values """
-        #pavg = sum(x['Pgmax'])/Ngen
-        #qavg = sum(x['Qgmax'])/Ngen
-        
-        pmax = 1.1*resg['max'][gensampdict['Pgmax']]
-        pmin = 0.9*resg['min'][gensampdict['Pgmax']]
-        qmax = 1.1*resg['max'][gensampdict['Qgmax']]
-        qmin = 0.9*resg['min'][gensampdict['Qgmax']]
+        if not resg['actual_vars']:
+            #pavg = sum(x['Pgmax'])/Ngen
+            #qavg = sum(x['Qgmax'])/Ngen
+            
+            pmax = 1.1*resg['max'][gensampdict['Pgmax']]
+            pmin = 0.9*resg['min'][gensampdict['Pgmax']]
+            qmax = 1.1*resg['max'][gensampdict['Qgmax']]
+            qmin = 0.9*resg['min'][gensampdict['Qgmax']]
 
-        flag,x['Pgmax'],x['Qgmax'],x['Pgmin'] = maxval_rescale(x['Pgmax'],x['Qgmax'],x['Pgmin'],resf['PgAvg'],resf['QgAvg'],pmax,pmin,qmax,qmin,Ngen)
+            flag,x['Pgmax'],x['Qgmax'],x['Pgmin'] = maxval_rescale(x['Pgmax'],x['Qgmax'],x['Pgmin'],resf['PgAvg'],resf['QgAvg'],pmax,pmin,qmax,qmin,Ngen)
  
-        #x['Pgmax'] = x['Pgmax']*(resf['PgAvg']/pavg)
-        #x['Qgmax'] = x['Qgmax']*(resf['QgAvg']/qavg)
-        if flag:
+            #x['Pgmax'] = x['Pgmax']*(resf['PgAvg']/pavg)
+            #x['Qgmax'] = x['Qgmax']*(resf['QgAvg']/qavg)
+            if flag:
+                break
+        else:
             break
     return x
 
@@ -576,6 +581,7 @@ def maxval_rescale(P,Q,Pmin,pavg,qavg,pmax,pmin,qmax,qmin,G):
 def multivar_z_sample(M,resz):
     while True:
         x = {k:np.empty(M) for i,k in resz['order'].items()}
+        x['actual_vars'] = resz['actual_vars']
         zsampdict = {resz['order'][j]:i for i,j in enumerate(resz['inkde'])}
         NRgX = int(round(resz['RgX']*M))
         NBgX = int(round(resz['BgX']*M))
@@ -619,8 +625,11 @@ def multivar_z_sample(M,resz):
             bmin = resz['min'][zsampdict['b']]
         else:
             bmax = 0; bmin = 0
-        flag, x['r'],x['x'],x['b'] = z_rescale(x['r'],x['x'],x['b'],resz['xmean'],resz['bmean'],resz['max'][zsampdict['x']], resz['min'][zsampdict['x']],bmax,bmin,M)
-        if flag:
+        if not resz['actual_vars']:
+            flag, x['r'],x['x'],x['b'] = z_rescale(x['r'],x['x'],x['b'],resz['xmean'],resz['bmean'],resz['max'][zsampdict['x']], resz['min'][zsampdict['x']],bmax,bmin,M)
+            if flag:
+                break
+        else:
             break
     return x
 

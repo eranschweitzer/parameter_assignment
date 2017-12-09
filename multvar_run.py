@@ -12,7 +12,7 @@ import helpers as hlp
 import multvar_init as init
 
 
-def main(savename, fdata, Nmax=400, Nmin=50):
+def main(savename, fdata, Nmax=400, Nmin=50, actual_vars_d=False, actual_vars_g=True, actual_vars_z=True):
 
     start = time.time()
     FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
@@ -23,6 +23,12 @@ def main(savename, fdata, Nmax=400, Nmin=50):
     
     input_timestamp = timestamp()
 
+    #### INPUTS #########################
+    truelist = [True,'True','true','t','1']
+    actual_vars_z = actual_vars_z in truelist
+    actual_vars_d = actual_vars_d in truelist
+    actual_vars_g = actual_vars_g in truelist
+
     ##### Define Constants ###############
     Nmax = int(Nmax); Nmin = int(Nmin)
     fmax = 9 # per unit maximum real power flow on lin\mathcal{M}_{P^f}e
@@ -30,8 +36,8 @@ def main(savename, fdata, Nmax=400, Nmin=50):
     htheta = 7 #number of segments for approximating (theta_f - theta_t)^2/2
     umin = np.log(0.9)  # minimum ln(voltage)
     umax = np.log(1.05)  # maximum ln(voltage)
-    lossmin = 0.01
-    lossterm= 0.05
+    lossmin = 0.01      # minimum losses required (fraction = (Pg - Pd)/Pg)
+    lossterm= 0.05      # terminate optimization when if losses are at this level or below
     thresholds = {'gap':       5,
                   'mean_diff': 0.05,
                   'max_diff':  0.1,
@@ -50,9 +56,8 @@ def main(savename, fdata, Nmax=400, Nmin=50):
 
     #### Fit Power and Impedance Data #### 
     import fit_inputs as ftin
-    resz = ftin.multivariate_z(branch_data,bw_method=0.01)
-    resd,resg,resf = ftin.multivariate_power(bus_data,gen_data)
-
+    resz = ftin.multivariate_z(branch_data, bw_method=0.01, actual_vars=actual_vars_z)
+    resd,resg,resf = ftin.multivariate_power(bus_data, gen_data, actual_vars_d=actual_vars_d, actual_vars_g=actual_vars_g)
 
     #### optimization ########
     import formulation_multvar as fm
@@ -131,6 +136,10 @@ def timeparts(start,end):
 def log_input_samples(S,z):
     logging.info('------ Power Info -------')
     logging.info('Load:')
+    try:
+        logging.info('Actual Samples: %s', S['actual_vars_d'])
+    except KeyError:
+        logging.info('Actual Samples: N/A')
     logging.info('Total: %0.4f MW, %0.4f MVar', sum(S['Pd']), sum(S['Qd']))
     logging.info('max: %0.4f MW, %0.4f MVar', max(S['Pd']), max(S['Qd']))
     logging.info('min (non 0): %0.4f MW, %0.4f MVar', min(S['Pd'][S['Pd'] != 0]), min(S['Qd'][S['Qd'] != 0]))
@@ -143,6 +152,10 @@ def log_input_samples(S,z):
     logging.info('Avg (non 0): %0.4f WM, %0.4f MVar', np.mean(S['Pgmax'][S['Pgmax'] != 0]), np.mean(S['Qgmax'][S['Qgmax'] != 0]))
     logging.info('Std (non 0): %0.4f WM, %0.4f MVar', np.std(S['Pgmax'][S['Pgmax'] != 0]),  np.std(S['Qgmax'][S['Qgmax'] != 0]))
     logging.info('Gen Min:')
+    try:
+        logging.info('Actual Samples: %s', S['actual_vars_g'])
+    except KeyError:
+        logging.info('Actual Samples: N/A')
     logging.info('Total: %0.4f MW', sum(S['Pgmin']))
     logging.info('max: %0.4f MW', max(S['Pgmin']))
     if np.any(S['Pgmin'] != 0):
@@ -151,6 +164,10 @@ def log_input_samples(S,z):
         logging.info('Std (non 0): %0.4f WM', np.std(S['Pgmin'][S['Pgmin'] != 0]))
 
     logging.info('------Impedance Info----------')
+    try:
+        logging.info('Actual Samples: %s', z['actual_vars'])
+    except KeyError:
+        logging.info('Actual Samples: N/A')
     logging.info('Max         (r,x,b): %0.3g, %0.3g, %0.3g', max(z['r']), max(z['x']), max(z['b']))
     logging.info('Min         (r,x,b): %0.3g, %0.3g, %0.3g', min(z['r']), min(z['x']), min(z['b']))
     logging.info('Min (non 0) (r,x,b): %0.3g, %0.3g, %0.3g', min(z['r'][z['r'] != 0]), min(z['x'][z['x'] != 0]), min(z['b'][z['b'] != 0]))

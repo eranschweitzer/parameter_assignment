@@ -14,7 +14,7 @@ def mycallback(model,where):
     """
     if where == gb.GRB.Callback.MIPSOL:
         Pg       = sum(model.cbGetSolution(model._Pg.values()))
-        criteria = (Pg - model._pload)/model._pload
+        criteria = (Pg - model._pload)/Pg
         solcnt   = model.cbGet(gb.GRB.Callback.MIPSOL_SOLCNT) + 1
         logging.info('Current solution: solcnt: %d, sum(Pg)=%0.2f, sum(load)=%0.2f, criteria=%0.3g', solcnt, Pg, model._pload, criteria)
         if (solcnt > 0) and (criteria < model._lossterm):
@@ -49,7 +49,7 @@ def mycallback2(model,where):
         in_sum   = sum(model.cbGetSolution(model._beta[i]) for _,j in model._ebound_map['in'].items()  for i in j)
         out_sum  = sum(model.cbGetSolution(model._beta[i]) for _,j in model._ebound_map['out'].items() for i in j)
         Pg       = sum(model.cbGetSolution(model._Pg.values()))
-        criteria = (Pg - model._pload + in_sum - out_sum)/model._pload
+        criteria = (Pg - model._pload + in_sum - out_sum)/(Pg + in_sum - out_sum)
         solcnt   = model.cbGet(gb.GRB.Callback.MIPSOL_SOLCNT) + 1
         logging.info('Current solution: solcnt: %d, solmin: %d, sum(beta_in)=%0.2f, sum(beta_out)=%0.2f, sum(Pg)=%0.2f, sum(load)=%0.2f, criteria=%0.3g',solcnt,model._solmin,in_sum, out_sum, Pg, model._pload, criteria)
         if (solcnt > model._solmin) and (criteria < model._lossterm):
@@ -123,7 +123,7 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     ###############
     # Constraints
     ###############
-    m.addConstr( Pg.sum("*") >= m._pload*(1+lossmin) )
+    m.addConstr( Pg.sum("*") >= m._pload*(1/(1 - lossmin)) )
     for n1,n2,l in G.edges_iter(data='id'):
         m.addConstr( theta[n1] - theta[n2] <=  dmax)
         m.addConstr( theta[n1] - theta[n2] >= -dmax)
@@ -272,7 +272,7 @@ class ZoneMILP(object):
         ###############
         # Constraints
         ###############
-        self.m.addConstr( self.Pg.sum("*") + sum(self.beta[i] for _,j in ebound_map['in'].items() for i in j) - sum(self.beta[i] for _,j in ebound_map['out'].items() for i in j) >= self.m._pload*(1+lossmin) )
+        self.m.addConstr( self.Pg.sum("*") + sum(self.beta[i] for _,j in ebound_map['in'].items() for i in j) - sum(self.beta[i] for _,j in ebound_map['out'].items() for i in j) >= self.m._pload*(1/(1-lossmin)) )
         for _n1,_n2,_l in G.edges_iter(data='id'):
             n1 = nmap[_n1]; n2 = nmap[_n2];  l = lmap[_l]
             self.m.addConstr( self.theta[n1] - self.theta[n2] <=  dmax)
