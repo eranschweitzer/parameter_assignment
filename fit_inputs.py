@@ -109,7 +109,7 @@ def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,a
 
     return resd,resg,resf
 
-def multivariate_z(branch_data,bw_method='scott',actual_vars=True):
+def multivariate_z(branch_data,bw_method='scott',actual_vars=True, mvabase=100.):
     order = dict(zip(range(4),['r','x','b','rate']))
     inkde = list(range(4))
     vdefault = {}
@@ -120,7 +120,7 @@ def multivariate_z(branch_data,bw_method='scott',actual_vars=True):
     ptr = 0
     for R,X,B,rate,status in zip(branch_data['BR_R'], branch_data['BR_X'], branch_data['BR_B'], branch_data['RATE_A'], branch_data['BR_STATUS']):
         if status > 0:
-            x['r'][ptr] = R; x['x'][ptr] = X ; x['b'][ptr] = B; x['rate'][ptr] = rate;
+            x['r'][ptr] = R; x['x'][ptr] = X ; x['b'][ptr] = B; x['rate'][ptr] = rate/mvabase;
             ptr += 1
     res = {}
     for i in range(4):

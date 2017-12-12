@@ -39,12 +39,15 @@ def solvers_init(G,Nmax,Nmin,resd,resg,resf,resz,lossmin,lossterm,fmax,dmax,hthe
         logging.info('-------------------')
         ### Sample Power and Impedance ####
         S = hlp.multivar_power_sample(H.number_of_nodes(),resd,resg,resf)
-        z = hlp.multivar_z_sample(H.number_of_edges(),resz)
+        z = hlp.multivar_z_sample(H.number_of_edges(),resz, fmaxin=fmax)
+        fmax = max(z['rate']) # update fmax
         log_samples(S,z)
         ### get primitive admittance values ####
         Y = hlp.Yparts(z['r'],z['x'],b=z['b'])
         bigM = hlp.bigM_calc(Y,fmax,umax,dmax)
-        logging.info('big M: %0.4g', bigM)
+        #logging.info('big M: %0.4g', bigM)
+        for k,v in bigM.items():
+            logging.info('big M%s: %0.4g', k, v)
         #### initialize zone solver #####
         solvers.append(fm.ZoneMILP(H,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM,ebound[1],ebound[0]))
     return solvers, ebound2zones([x[1] for x in eboundary_map])

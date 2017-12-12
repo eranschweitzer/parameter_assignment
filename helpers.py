@@ -578,7 +578,7 @@ def maxval_rescale(P,Q,Pmin,pavg,qavg,pmax,pmin,qmax,qmin,G):
             Pmin[i] = wp[i].X*Pmin[i]
     return flag,P,Q,Pmin
 
-def multivar_z_sample(M,resz):
+def multivar_z_sample(M,resz, fmaxin=9):
     while True:
         x = {k:np.empty(M) for i,k in resz['order'].items()}
         x['actual_vars'] = resz['actual_vars']
@@ -586,9 +586,14 @@ def multivar_z_sample(M,resz):
         NRgX = int(round(resz['RgX']*M))
         NBgX = int(round(resz['BgX']*M))
         B0   = int(round(resz['b0']*M))
+        if 'rate' in zsampdict:
+            fmax = max(fmaxin,resz['max'][zsampdict['rate']])
+        else:
+            fmax = max(fmaxin,resz['vdefault']['rate'])
 
         RgXcnt = 0
         BgXcnt = 0
+        """ Zero Susceptance Branches """
         if resz['actual_vars']:
             cols = np.where(resz['kde'].dataset[zsampdict['b'],:] == 0)[0]
         else:
@@ -601,10 +606,17 @@ def multivar_z_sample(M,resz):
                 s = multivar_kde_sample(resz['kde'],actual_vars=resz['actual_vars'])
             if s[zsampdict['r']] > s[zsampdict['x']]:
                 RgXcnt += 1
-            for k in ['r','x']:
-                x[k][i] = s[zsampdict[k]]
+            for k in ['r','x','rate']:
+                try:
+                    x[k][i] = s[zsampdict[k]]
+                except KeyError:
+                    x[k][i] = resz['vdefault'][k]
+            if x['rate'][i] == 0:
+                x['rate'][i] = fmax
             x['b'][i] = 0
+            
 
+        """ Rest of Branches """
         for i in range(B0,M):
             #s = resz['kde'].resample(1)
             s = multivar_kde_sample(resz['kde'],actual_vars=resz['actual_vars'])
@@ -619,13 +631,15 @@ def multivar_z_sample(M,resz):
                 x[k][i] = s[v]
             for k,v in resz['vdefault'].items():
                 x[k][i] = v
+            if x['rate'][i] == 0:
+                x['rate'][i] = fmax
         
-        if 'b' in zsampdict:
-            bmax = resz['max'][zsampdict['b']]
-            bmin = resz['min'][zsampdict['b']]
-        else:
-            bmax = 0; bmin = 0
         if not resz['actual_vars']:
+            if 'b' in zsampdict:
+                bmax = resz['max'][zsampdict['b']]
+                bmin = resz['min'][zsampdict['b']]
+            else:
+                bmax = 0; bmin = 0
             flag, x['r'],x['x'],x['b'] = z_rescale(x['r'],x['x'],x['b'],resz['xmean'],resz['bmean'],resz['max'][zsampdict['x']], resz['min'][zsampdict['x']],bmax,bmin,M)
             if flag:
                 break
@@ -702,11 +716,13 @@ def Yparts(r,x,b=None,tau=None,phi=None):
     return {'gff': gff, 'gft': gft, 'gtf':gtf, 'gtt':gtt, 'bff': bff, 'bft': bft, 'btf':btf, 'btt':btt}
     
 def bigM_calc(Y,fmax,umax,dmax,margin=1.1):
-    Mpf  = fmax + max(Y['gff'] + Y['gft'])*(1+umax) + max(np.abs(Y['bft']))*dmax
-    Mqf  = fmax + max(Y['bff'] + Y['bft'])*(1+umax) + max(np.abs(Y['gft']))*dmax
-    Mpt  = fmax + max(Y['gtt'] + Y['gtf'])*(1+umax) + max(np.abs(Y['btf']))*dmax
-    Mqt  = fmax + max(Y['btt'] + Y['btf'])*(1+umax) + max(np.abs(Y['gtf']))*dmax
-    return max(Mpf,Mqf,Mpt,Mqt)*margin
+    bigM = {}
+    bigM['pf']  = margin*(fmax + max(Y['gff'] + Y['gft'])*(1+umax) + max(np.abs(Y['bft']))*dmax - min(Y['gft'])*0.5*dmax**2)
+    bigM['qf']  = margin*(fmax + max(Y['bff'] + Y['bft'])*(1+umax) + max(np.abs(Y['gft']))*dmax - min(Y['bft'])*0.5*dmax**2)
+    bigM['pt']  = margin*(fmax + max(Y['gtt'] + Y['gtf'])*(1+umax) + max(np.abs(Y['btf']))*dmax - min(Y['gtf'])*0.5*dmax**2)
+    bigM['qt']  = margin*(fmax + max(Y['btt'] + Y['btf'])*(1+umax) + max(np.abs(Y['gtf']))*dmax - min(Y['btf'])*0.5*dmax**2)
+    #return max(Mpf,Mqf,Mpt,Mqt)*margin
+    return bigM
 
 
 def testing(*args):

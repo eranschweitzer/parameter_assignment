@@ -31,11 +31,11 @@ def main(savename, fdata, Nmax=400, Nmin=50, actual_vars_d=False, actual_vars_g=
 
     ##### Define Constants ###############
     Nmax = int(Nmax); Nmin = int(Nmin)
-    fmax = 9 # per unit maximum real power flow on lin\mathcal{M}_{P^f}e
+    fmax = 9            # default per unit maximum real power flow on line
     dmax = 40*np.pi/180 # angle difference limit over a branch
-    htheta = 7 #number of segments for approximating (theta_f - theta_t)^2/2
+    htheta = 7          # number of segments for approximating (theta_f - theta_t)^2/2
     umin = np.log(0.9)  # minimum ln(voltage)
-    umax = np.log(1.05)  # maximum ln(voltage)
+    umax = np.log(1.05) # maximum ln(voltage)
     lossmin = 0.01      # minimum losses required (fraction = (Pg - Pd)/Pg)
     lossterm= 0.05      # terminate optimization when if losses are at this level or below
     thresholds = {'gap':       5,
@@ -92,16 +92,13 @@ def main(savename, fdata, Nmax=400, Nmin=50, actual_vars_d=False, actual_vars_g=
     else:
         ### Sample Power and Impedance ####
         S = hlp.multivar_power_sample(N,resd,resg,resf)
-        z = hlp.multivar_z_sample(L,resz)
+        z = hlp.multivar_z_sample(L,resz,fmaxin=fmax)
+        fmax = max(z['rate']) # update fmax
         log_input_samples(S,z)
 
         ### get primitive admittance values ####
         Y = hlp.Yparts(z['r'],z['x'],b=z['b'])
-        Mpf  = fmax + max(Y['gff'] + Y['gft'])*(1+umax) + max(np.abs(Y['bft']))*dmax
-        Mqf  = fmax + max(Y['bff'] + Y['bft'])*(1+umax) + max(np.abs(Y['gft']))*dmax
-        Mpt  = fmax + max(Y['gtt'] + Y['gtf'])*(1+umax) + max(np.abs(Y['btf']))*dmax
-        Mqt  = fmax + max(Y['btt'] + Y['btf'])*(1+umax) + max(np.abs(Y['gtf']))*dmax
-        bigM = max(Mpf,Mqf,Mpt,Mqt)*1.1
+        bigM = hlp.bigM_calc(Y,fmax,umax,dmax)
         log_optimization_consts(lossmin,lossterm,fmax,dmax,htheta,umin,umax,bigM=bigM)
 
         ### solve ####
@@ -183,7 +180,9 @@ def log_optimization_consts(lossmin,lossterm,fmax,dmax,htheta,umin,umax,bigM=Non
     logging.info('u max: %0.4f', umax)
     logging.info('minimum losses: %d%%, terminating losses: %d%%', 100*lossmin, 100*lossterm)
     if bigM is not None:
-        logging.info('big M: %0.4g', bigM)
+        #logging.info('big M: %0.4g', bigM)
+        for k,v in bigM.items():
+            logging.info('big M%s: %0.4g', k, v)
     if thresholds is not None:
         for k,v in thresholds.items():
             logging.info('%s threshold: %0.3f',k,v)

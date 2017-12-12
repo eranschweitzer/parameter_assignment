@@ -83,6 +83,7 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
 
     ### get primitive admittance values ####
     Y = hlp.Yparts(z['r'],z['x'],b=z['b'])
+    limitflag = np.all(z['rate'] == z['rate'][0])
 
     m = gb.Model()
     m.setParam('LogFile','/tmp/GurobiMultivar.log')
@@ -113,10 +114,16 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     Qgp   = m.addVars(N,lb=0, name="Qgp")
     Qgn   = m.addVars(N,lb=0, name="Qgn")
 
-    Pf    = m.addVars(L,lb=-fmax, ub=fmax, name="Pf")
-    Pt    = m.addVars(L,lb=-fmax, ub=fmax, name="Pt")
-    Qf    = m.addVars(L,lb=-fmax, ub=fmax, name="Qf")
-    Qt    = m.addVars(L,lb=-fmax, ub=fmax, name="Qt")
+    if not limitflag:
+        Pf = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Pf")
+        Pt = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Pt")
+        Qf = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qf")
+        Qt = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qt")
+    else:
+        Pf = m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Pf")
+        Pt = m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Pt")
+        Qf = m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Qf")
+        Qt = m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Qt")
 
     m._Pg = Pg
     d = dmax/htheta
@@ -127,20 +134,32 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     for n1,n2,l in G.edges_iter(data='id'):
         m.addConstr( theta[n1] - theta[n2] <=  dmax)
         m.addConstr( theta[n1] - theta[n2] >= -dmax)
+
+        ##### flow limits #########
+        if limitflag:
+            m.addConstr( sum( Z[l,i]*Pf[i] for i in range(L) ) <=  z['rate'][l] )
+            m.addConstr( sum( Z[l,i]*Pf[i] for i in range(L) ) >= -z['rate'][l] )
+            m.addConstr( sum( Z[l,i]*Pt[i] for i in range(L) ) <=  z['rate'][l] )
+            m.addConstr( sum( Z[l,i]*Pt[i] for i in range(L) ) >= -z['rate'][l] )
+            m.addConstr( sum( Z[l,i]*Qf[i] for i in range(L) ) <=  z['rate'][l] )
+            m.addConstr( sum( Z[l,i]*Qf[i] for i in range(L) ) >= -z['rate'][l] )
+            m.addConstr( sum( Z[l,i]*Qt[i] for i in range(L) ) <=  z['rate'][l] )
+            m.addConstr( sum( Z[l,i]*Qt[i] for i in range(L) ) >= -z['rate'][l] )
+
         for t in range(htheta+1):
             m.addConstr(phi[l] >= -0.5*(t*d)**2 + (t*d)*(theta[n1] - theta[n2]))
             m.addConstr(phi[l] >= -0.5*(t*d)**2 + (t*d)*(theta[n2] - theta[n1]))
 
-    for n1,n2,l in G.edges_iter(data='id'):
+#    for n1,n2,l in G.edges_iter(data='id'):
         for _,_,l2 in G.edges_iter(data='id'):
-            m.addConstr(Pf[l] - Y['gff'][l2]*(1+u[n1]) - Y['gft'][l2]*(1-phi[l]+u[n2]) + Y['bft'][l2]*(theta[n2] - theta[n1]) + bigM*(1 - Z[l,l2]) >= 0)
-            m.addConstr(Pf[l] - Y['gff'][l2]*(1+u[n1]) - Y['gft'][l2]*(1-phi[l]+u[n2]) + Y['bft'][l2]*(theta[n2] - theta[n1]) - bigM*(1 - Z[l,l2]) <= 0)
-            m.addConstr(Qf[l] + Y['bff'][l2]*(1+u[n1]) + Y['bft'][l2]*(1+phi[l]+u[n2]) - Y['gft'][l2]*(theta[n2] - theta[n1]) + bigM*(1 - Z[l,l2]) >= 0)
-            m.addConstr(Qf[l] + Y['bff'][l2]*(1+u[n1]) + Y['bft'][l2]*(1+phi[l]+u[n2]) - Y['gft'][l2]*(theta[n2] - theta[n1]) - bigM*(1 - Z[l,l2]) <= 0)
-            m.addConstr(Pt[l] - Y['gtt'][l2]*(1+u[n2]) - Y['gtf'][l2]*(1-phi[l]+u[n1]) + Y['btf'][l2]*(theta[n1] - theta[n2]) + bigM*(1 - Z[l,l2]) >= 0)
-            m.addConstr(Pt[l] - Y['gtt'][l2]*(1+u[n2]) - Y['gtf'][l2]*(1-phi[l]+u[n1]) + Y['btf'][l2]*(theta[n1] - theta[n2]) - bigM*(1 - Z[l,l2]) <= 0)
-            m.addConstr(Qt[l] + Y['btt'][l2]*(1+u[n2]) + Y['btf'][l2]*(1+phi[l]+u[n1]) - Y['gtf'][l2]*(theta[n1] - theta[n2]) + bigM*(1 - Z[l,l2]) >= 0)
-            m.addConstr(Qt[l] + Y['btt'][l2]*(1+u[n2]) + Y['btf'][l2]*(1+phi[l]+u[n1]) - Y['gtf'][l2]*(theta[n1] - theta[n2]) - bigM*(1 - Z[l,l2]) <= 0)
+            m.addConstr(Pf[l] - Y['gff'][l2]*(1+u[n1]) - Y['gft'][l2]*(1-phi[l]+u[n2]) + Y['bft'][l2]*(theta[n2] - theta[n1]) + bigM['pf']*(1 - Z[l,l2]) >= 0)
+            m.addConstr(Pf[l] - Y['gff'][l2]*(1+u[n1]) - Y['gft'][l2]*(1-phi[l]+u[n2]) + Y['bft'][l2]*(theta[n2] - theta[n1]) - bigM['pf']*(1 - Z[l,l2]) <= 0)
+            m.addConstr(Qf[l] + Y['bff'][l2]*(1+u[n1]) + Y['bft'][l2]*(1+phi[l]+u[n2]) - Y['gft'][l2]*(theta[n2] - theta[n1]) + bigM['qf']*(1 - Z[l,l2]) >= 0)
+            m.addConstr(Qf[l] + Y['bff'][l2]*(1+u[n1]) + Y['bft'][l2]*(1+phi[l]+u[n2]) - Y['gft'][l2]*(theta[n2] - theta[n1]) - bigM['qf']*(1 - Z[l,l2]) <= 0)
+            m.addConstr(Pt[l] - Y['gtt'][l2]*(1+u[n2]) - Y['gtf'][l2]*(1-phi[l]+u[n1]) + Y['btf'][l2]*(theta[n1] - theta[n2]) + bigM['pt']*(1 - Z[l,l2]) >= 0)
+            m.addConstr(Pt[l] - Y['gtt'][l2]*(1+u[n2]) - Y['gtf'][l2]*(1-phi[l]+u[n1]) + Y['btf'][l2]*(theta[n1] - theta[n2]) - bigM['pt']*(1 - Z[l,l2]) <= 0)
+            m.addConstr(Qt[l] + Y['btt'][l2]*(1+u[n2]) + Y['btf'][l2]*(1+phi[l]+u[n1]) - Y['gtf'][l2]*(theta[n1] - theta[n2]) + bigM['qt']*(1 - Z[l,l2]) >= 0)
+            m.addConstr(Qt[l] + Y['btt'][l2]*(1+u[n2]) + Y['btf'][l2]*(1+phi[l]+u[n1]) - Y['gtf'][l2]*(theta[n1] - theta[n2]) - bigM['qt']*(1 - Z[l,l2]) <= 0)
 
     m.addConstrs( Pd[i] == sum(Pi[i,j]*S['Pd'][j] for j in range(N))/100 for i in range(N))
     m.addConstrs( Qd[i] == sum(Pi[i,j]*S['Qd'][j] for j in range(N))/100 for i in range(N))
@@ -190,6 +209,7 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     vars['r']     = hlp.var2mat(z['r'], L, perm=Z)
     vars['x']     = hlp.var2mat(z['x'], L, perm=Z)
     vars['b']     = hlp.var2mat(z['b'], L, perm=Z)
+    vars['rate']  = hlp.var2mat(z['rate'], L, prem=Z)
     vars['theta'] = hlp.var2mat(theta, N)
     vars['u']     = hlp.var2mat(u, N)
     vars['phi']   = hlp.var2mat(phi,L)
@@ -212,6 +232,7 @@ class ZoneMILP(object):
             rlmap[v] = k
         ### get primitive admittance values ####
         Y = hlp.Yparts(z['r'],z['x'],b=z['b'])
+        limitflag = np.all(z['rate'] == z['rate'][0])
         
         ### save inputs
         self.N = N; self.L = L
@@ -246,10 +267,16 @@ class ZoneMILP(object):
         self.Pg    = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="Pg")
         self.Qg    = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="Qg")
 
-        self.Pf    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Pf")
-        self.Pt    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Pt")
-        self.Qf    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Qf")
-        self.Qt    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Qt")
+        if not limitflag:
+            self.Pf    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Pf")
+            self.Pt    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Pt")
+            self.Qf    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qf")
+            self.Qt    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qt")
+        else:
+            self.Pf    = self.m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Pf")
+            self.Pt    = self.m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Pt")
+            self.Qf    = self.m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Qf")
+            self.Qt    = self.m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Qt")
 
         #NOTE: beta and gamma are on EXTERNAL/GLOBAL indexing!!!!
         self.beta   = self.m.addVars(ebound, lb=-fmax, ub=fmax, name='beta')
@@ -277,20 +304,32 @@ class ZoneMILP(object):
             n1 = nmap[_n1]; n2 = nmap[_n2];  l = lmap[_l]
             self.m.addConstr( self.theta[n1] - self.theta[n2] <=  dmax)
             self.m.addConstr( self.theta[n1] - self.theta[n2] >= -dmax)
+
+            ##### flow limits #########
+            if limitflag:
+                self.m.addConstr( sum( self.Z[l,i]*self.Pf[i] for i in range(L) ) <=  z['rate'][l] )
+                self.m.addConstr( sum( self.Z[l,i]*self.Pf[i] for i in range(L) ) >= -z['rate'][l] )
+                self.m.addConstr( sum( self.Z[l,i]*self.Pt[i] for i in range(L) ) <=  z['rate'][l] )
+                self.m.addConstr( sum( self.Z[l,i]*self.Pt[i] for i in range(L) ) >= -z['rate'][l] )
+                self.m.addConstr( sum( self.Z[l,i]*self.Qf[i] for i in range(L) ) <=  z['rate'][l] )
+                self.m.addConstr( sum( self.Z[l,i]*self.Qf[i] for i in range(L) ) >= -z['rate'][l] )
+                self.m.addConstr( sum( self.Z[l,i]*self.Qt[i] for i in range(L) ) <=  z['rate'][l] )
+                self.m.addConstr( sum( self.Z[l,i]*self.Qt[i] for i in range(L) ) >= -z['rate'][l] )
+
             for t in range(htheta+1):
                 self.m.addConstr(self.phi[l] >= -0.5*(t*d)**2 + (t*d)*(self.theta[n1] - self.theta[n2]))
                 self.m.addConstr(self.phi[l] >= -0.5*(t*d)**2 + (t*d)*(self.theta[n2] - self.theta[n1]))
 
             for _,_,_l2 in G.edges_iter(data='id'):
                 l2 = lmap[_l2]
-                self.m.addConstr( self.Pf[l] - Y['gff'][l2]*(1+self.u[n1]) - Y['gft'][l2]*(1-self.phi[l]+self.u[n2]) + Y['bft'][l2]*(self.theta[n2] - self.theta[n1]) + bigM*(1 - self.Z[l,l2]) >= 0)
-                self.m.addConstr( self.Pf[l] - Y['gff'][l2]*(1+self.u[n1]) - Y['gft'][l2]*(1-self.phi[l]+self.u[n2]) + Y['bft'][l2]*(self.theta[n2] - self.theta[n1]) - bigM*(1 - self.Z[l,l2]) <= 0)
-                self.m.addConstr( self.Qf[l] + Y['bff'][l2]*(1+self.u[n1]) + Y['bft'][l2]*(1+self.phi[l]+self.u[n2]) - Y['gft'][l2]*(self.theta[n2] - self.theta[n1]) + bigM*(1 - self.Z[l,l2]) >= 0)
-                self.m.addConstr( self.Qf[l] + Y['bff'][l2]*(1+self.u[n1]) + Y['bft'][l2]*(1+self.phi[l]+self.u[n2]) - Y['gft'][l2]*(self.theta[n2] - self.theta[n1]) - bigM*(1 - self.Z[l,l2]) <= 0)
-                self.m.addConstr( self.Pt[l] - Y['gtt'][l2]*(1+self.u[n2]) - Y['gtf'][l2]*(1-self.phi[l]+self.u[n1]) + Y['btf'][l2]*(self.theta[n1] - self.theta[n2]) + bigM*(1 - self.Z[l,l2]) >= 0)
-                self.m.addConstr( self.Pt[l] - Y['gtt'][l2]*(1+self.u[n2]) - Y['gtf'][l2]*(1-self.phi[l]+self.u[n1]) + Y['btf'][l2]*(self.theta[n1] - self.theta[n2]) - bigM*(1 - self.Z[l,l2]) <= 0)
-                self.m.addConstr( self.Qt[l] + Y['btt'][l2]*(1+self.u[n2]) + Y['btf'][l2]*(1+self.phi[l]+self.u[n1]) - Y['gtf'][l2]*(self.theta[n1] - self.theta[n2]) + bigM*(1 - self.Z[l,l2]) >= 0)
-                self.m.addConstr( self.Qt[l] + Y['btt'][l2]*(1+self.u[n2]) + Y['btf'][l2]*(1+self.phi[l]+self.u[n1]) - Y['gtf'][l2]*(self.theta[n1] - self.theta[n2]) - bigM*(1 - self.Z[l,l2]) <= 0)
+                self.m.addConstr( self.Pf[l] - Y['gff'][l2]*(1+self.u[n1]) - Y['gft'][l2]*(1-self.phi[l]+self.u[n2]) + Y['bft'][l2]*(self.theta[n2] - self.theta[n1]) + bigM['pf']*(1 - self.Z[l,l2]) >= 0)
+                self.m.addConstr( self.Pf[l] - Y['gff'][l2]*(1+self.u[n1]) - Y['gft'][l2]*(1-self.phi[l]+self.u[n2]) + Y['bft'][l2]*(self.theta[n2] - self.theta[n1]) - bigM['pf']*(1 - self.Z[l,l2]) <= 0)
+                self.m.addConstr( self.Qf[l] + Y['bff'][l2]*(1+self.u[n1]) + Y['bft'][l2]*(1+self.phi[l]+self.u[n2]) - Y['gft'][l2]*(self.theta[n2] - self.theta[n1]) + bigM['qf']*(1 - self.Z[l,l2]) >= 0)
+                self.m.addConstr( self.Qf[l] + Y['bff'][l2]*(1+self.u[n1]) + Y['bft'][l2]*(1+self.phi[l]+self.u[n2]) - Y['gft'][l2]*(self.theta[n2] - self.theta[n1]) - bigM['qf']*(1 - self.Z[l,l2]) <= 0)
+                self.m.addConstr( self.Pt[l] - Y['gtt'][l2]*(1+self.u[n2]) - Y['gtf'][l2]*(1-self.phi[l]+self.u[n1]) + Y['btf'][l2]*(self.theta[n1] - self.theta[n2]) + bigM['pt']*(1 - self.Z[l,l2]) >= 0)
+                self.m.addConstr( self.Pt[l] - Y['gtt'][l2]*(1+self.u[n2]) - Y['gtf'][l2]*(1-self.phi[l]+self.u[n1]) + Y['btf'][l2]*(self.theta[n1] - self.theta[n2]) - bigM['pt']*(1 - self.Z[l,l2]) <= 0)
+                self.m.addConstr( self.Qt[l] + Y['btt'][l2]*(1+self.u[n2]) + Y['btf'][l2]*(1+self.phi[l]+self.u[n1]) - Y['gtf'][l2]*(self.theta[n1] - self.theta[n2]) + bigM['qt']*(1 - self.Z[l,l2]) >= 0)
+                self.m.addConstr( self.Qt[l] + Y['btt'][l2]*(1+self.u[n2]) + Y['btf'][l2]*(1+self.phi[l]+self.u[n1]) - Y['gtf'][l2]*(self.theta[n1] - self.theta[n2]) - bigM['qt']*(1 - self.Z[l,l2]) <= 0)
 
         self.m.addConstrs( self.Pd[i] ==  sum( self.Pi[i,j]*S['Pd'][j]    for j in range(N) )/100 for i in range(N))
         self.m.addConstrs( self.Qd[i] ==  sum( self.Pi[i,j]*S['Qd'][j]    for j in range(N) )/100 for i in range(N))
@@ -372,6 +411,7 @@ class ZoneMILP(object):
         vars['r']     = hlp.var2mat(self.z['r'], self.L, perm=self.Z)
         vars['x']     = hlp.var2mat(self.z['x'], self.L, perm=self.Z)
         vars['b']     = hlp.var2mat(self.z['b'], self.L, perm=self.Z)
+        vars['rate']  = hlp.var2mat(self.z['rate'], self.L, perm=self.Z)
         vars['theta'] = hlp.var2mat(self.theta, self.N)
         vars['u']     = hlp.var2mat(self.u, self.N)
         vars['phi']   = hlp.var2mat(self.phi,self.L)
