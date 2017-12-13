@@ -56,7 +56,7 @@ def main(savename, fdata, Nmax=400, Nmin=50, actual_vars_d=False, actual_vars_g=
 
     #### Fit Power and Impedance Data #### 
     import fit_inputs as ftin
-    resz = ftin.multivariate_z(branch_data, bw_method=0.01, actual_vars=actual_vars_z)
+    resz,fmax = ftin.multivariate_z(branch_data, bw_method=0.01, actual_vars=actual_vars_z, fmaxin=fmax)
     resd,resg,resf = ftin.multivariate_power(bus_data, gen_data, actual_vars_d=actual_vars_d, actual_vars_g=actual_vars_g)
 
     #### optimization ########
@@ -92,12 +92,11 @@ def main(savename, fdata, Nmax=400, Nmin=50, actual_vars_d=False, actual_vars_g=
     else:
         ### Sample Power and Impedance ####
         S = hlp.multivar_power_sample(N,resd,resg,resf)
-        z = hlp.multivar_z_sample(L,resz,fmaxin=fmax)
-        fmax = max(z['rate']) # update fmax
+        z = hlp.multivar_z_sample(L,resz)
         log_input_samples(S,z)
 
         ### get primitive admittance values ####
-        Y = hlp.Yparts(z['r'],z['x'],b=z['b'])
+        Y = hlp.Yparts(z['r'],z['x'],b=z['b'],tau=z['tap'],phi=z['shift'])
         bigM = hlp.bigM_calc(Y,fmax,umax,dmax)
         log_optimization_consts(lossmin,lossterm,fmax,dmax,htheta,umin,umax,bigM=bigM)
 
@@ -143,16 +142,16 @@ def log_input_samples(S,z):
     logging.info('Avg: %0.4f WM, %0.4f MVar', np.mean(S['Pd']), np.mean(S['Qd']))
     logging.info('Std: %0.4f WM, %0.4f MVar', np.std(S['Pd']),  np.std(S['Qd']))
     logging.info('Gen Max:')
+    try:
+        logging.info('Actual Samples: %s', S['actual_vars_g'])
+    except KeyError:
+        logging.info('Actual Samples: N/A')
     logging.info('Total: %0.4f MW, %0.4f MVar', sum(S['Pgmax']), sum(S['Qgmax']))
     logging.info('max: %0.4f MW, %0.4f MVar', max(S['Pgmax']), max(S['Qgmax']))
     logging.info('min (non 0): %0.4f MW, %0.4f MVar', min(S['Pgmax'][S['Pgmax'] != 0]), min(S['Qgmax'][S['Qgmax'] != 0]))
     logging.info('Avg (non 0): %0.4f WM, %0.4f MVar', np.mean(S['Pgmax'][S['Pgmax'] != 0]), np.mean(S['Qgmax'][S['Qgmax'] != 0]))
     logging.info('Std (non 0): %0.4f WM, %0.4f MVar', np.std(S['Pgmax'][S['Pgmax'] != 0]),  np.std(S['Qgmax'][S['Qgmax'] != 0]))
     logging.info('Gen Min:')
-    try:
-        logging.info('Actual Samples: %s', S['actual_vars_g'])
-    except KeyError:
-        logging.info('Actual Samples: N/A')
     logging.info('Total: %0.4f MW', sum(S['Pgmin']))
     logging.info('max: %0.4f MW', max(S['Pgmin']))
     if np.any(S['Pgmin'] != 0):
@@ -170,6 +169,8 @@ def log_input_samples(S,z):
     logging.info('Min (non 0) (r,x,b): %0.3g, %0.3g, %0.3g', min(z['r'][z['r'] != 0]), min(z['x'][z['x'] != 0]), min(z['b'][z['b'] != 0]))
     logging.info('Avg         (r,x,b): %0.3g, %0.3g, %0.3g', np.mean(z['r']), np.mean(z['x']), np.mean(z['b']))
     logging.info('Std         (r,x,b): %0.3g, %0.3g, %0.3g', np.std(z['r']), np.std(z['x']), np.std(z['b']))
+    logging.info('# off-nominal tap  : %d', sum(z['tap']!=1))
+    logging.info('# phase-shifters   : %d', sum(z['shift']!=0))
 
 def log_optimization_consts(lossmin,lossterm,fmax,dmax,htheta,umin,umax,bigM=None,thresholds=None):
     logging.info('-----Optimization Constants------')

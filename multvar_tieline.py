@@ -49,9 +49,9 @@ def tieassign(G, nvars, lvars, lossmin, lossterm, fmax, dmax, htheta, umin, umax
     ### get primitive admittance values ####
     # IMPORTANT!!! Yfixed is size Lx1 where the boundary entries will be some arbitrary number
     # that should be ignored
-    Yfixed = hlp.Yparts( lvars['r'], lvars['x'], b=lvars['b'] )
-    Ytie   = hlp.Yparts( ztie['r'],  ztie['x'],  b=ztie['b'] )
-    bigM = hlp.bigM_calc(Ytie,max(ztie['rate']),umax,dmax)
+    Yfixed = hlp.Yparts( lvars['r'], lvars['x'], b=lvars['b'], tau=lvars['tap'], shift=lvars['shift'] )
+    Ytie   = hlp.Yparts( ztie['r'],  ztie['x'],  b=ztie['b'],  tau=ztie['tap'],  shift=ztie['shift'] )
+    bigM = hlp.bigM_calc(Ytie, max(ztie['rate']), umax, dmax)
 
     m = gb.Model()
 
@@ -73,10 +73,10 @@ def tieassign(G, nvars, lvars, lossmin, lossterm, fmax, dmax, htheta, umin, umax
     u     = m.addVars(N,lb=umin, ub=umax,name="u")
     phi   = m.addVars(L,lb=0,ub=dmax*dmax/2,name='phi')
     
-    Pf = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Pf")
-    Pt = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Pt")
-    Qf = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qf")
-    Qt = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qt")
+    Pf = m.addVars(L,lb=-fmax, ub=fmax, name="Pf")
+    Pt = m.addVars(L,lb=-fmax, ub=fmax, name="Pt")
+    Qf = m.addVars(L,lb=-fmax, ub=fmax, name="Qf")
+    Qt = m.addVars(L,lb=-fmax, ub=fmax, name="Qt")
 
     Pg    = m.addVars(N,lb=-gb.GRB.INFINITY, name="Pg")
     Qg    = m.addVars(N,lb=-gb.GRB.INFINITY, name="Qg")
@@ -94,25 +94,24 @@ def tieassign(G, nvars, lvars, lossmin, lossterm, fmax, dmax, htheta, umin, umax
         m.addConstr( theta[n1] - theta[n2] >= -dmax)
 
         ##### flow limits #########
-        if limitflag:
-            if l in tset:
-                self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pf[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
-                self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pf[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
-                self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pt[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
-                self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pt[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
-                self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qf[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
-                self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qf[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
-                self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qt[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
-                self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qt[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
-            else:
-                self.m.addConstr( Pf[l]  <=  lvars['rate'][l] )
-                self.m.addConstr( Pf[l]  >= -lvars['rate'][l] )
-                self.m.addConstr( Pt[l]  <=  lvars['rate'][l] )
-                self.m.addConstr( Pt[l]  >= -lvars['rate'][l] )
-                self.m.addConstr( Qf[l]  <=  lvars['rate'][l] )
-                self.m.addConstr( Qf[l]  >= -lvars['rate'][l] )
-                self.m.addConstr( Qt[l]  <=  lvars['rate'][l] )
-                self.m.addConstr( Qt[l]  >= -lvars['rate'][l] )
+        if l in tset:
+            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pf[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
+            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pf[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
+            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pt[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
+            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pt[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
+            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qf[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
+            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qf[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
+            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qt[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
+            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qt[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
+        else:
+            self.m.addConstr( Pf[l]  <=  lvars['rate'][l] )
+            self.m.addConstr( Pf[l]  >= -lvars['rate'][l] )
+            self.m.addConstr( Pt[l]  <=  lvars['rate'][l] )
+            self.m.addConstr( Pt[l]  >= -lvars['rate'][l] )
+            self.m.addConstr( Qf[l]  <=  lvars['rate'][l] )
+            self.m.addConstr( Qf[l]  >= -lvars['rate'][l] )
+            self.m.addConstr( Qt[l]  <=  lvars['rate'][l] )
+            self.m.addConstr( Qt[l]  >= -lvars['rate'][l] )
 
         for t in range(htheta+1):
             m.addConstr(phi[l] >= -0.5*(t*d)**2 + (t*d)*(theta[n1] - theta[n2]))
@@ -161,6 +160,8 @@ def tieassign(G, nvars, lvars, lossmin, lossterm, fmax, dmax, htheta, umin, umax
     lvars['x'][rbmap]    = hlp.var2mat(ztie['x'], E, perm=Z)
     lvars['b'][rbmap]    = hlp.var2mat(ztie['b'], E, perm=Z)
     lvars['rate'][rbmap] = hlp.var2mat(ztie['rate'], E, perm=Z)
+    lvars['tap'][rbmap]  = hlp.var2mat(ztie['tap'], E, perm=Z)
+    lvars['shift'][rmap] = hlp.var2mat(ztie['shift'], E, perm=Z)
     lvars['Pf']       = hlp.var2mat(Pf, L)
     lvars['Qf']       = hlp.var2mat(Qf, L)
     lvars['Pt']       = hlp.var2mat(Pt, L)

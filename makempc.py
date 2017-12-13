@@ -15,19 +15,19 @@ def savempc(dataname,savename):
     branch = np.zeros((L,13))
 
     for n1,n2,l in data['G'].edges_iter(data='id'):
-        branch[l,0] = n1+1          # from bus
-        branch[l,1] = n2+1          # to bus
-        branch[l,2] = data['r'][l]  # resistance (p.u.)
-        branch[l,3] = data['x'][l]  # reactance (p.u.)
-        branch[l,4] = data['b'][l]  # changing susceptance
-        branch[l,5] = 0             # Rate A
-        branch[l,6] = 0             # Rate B
-        branch[l,7] = 0             # Rate C
-        branch[l,8] = 0             # off nominal tap
-        branch[l,9] = 0             # phase shift
-        branch[l,10]= 1             # branch status
-        branch[l,11]= 0             # minimum angle difference
-        branch[l,12]= 0             # maximum angle difference
+        branch[l,0] = n1+1                       # from bus
+        branch[l,1] = n2+1                       # to bus
+        branch[l,2] = data['r'][l]               # resistance (p.u.)
+        branch[l,3] = data['x'][l]               # reactance (p.u.)
+        branch[l,4] = data['b'][l]               # changing susceptance
+        branch[l,5] = data['rate'][l]*100        # Rate A
+        branch[l,6] = 0                          # Rate B
+        branch[l,7] = 0                          # Rate C
+        branch[l,8] = data['tap'][l]             # off nominal tap
+        branch[l,9] = data['shift'][l]*180/np.pi # phase shift
+        branch[l,10]= 1               # branch status
+        branch[l,11]= 0               # minimum angle difference
+        branch[l,12]= 0               # maximum angle difference
 
     ###################
     # Generator Matrix

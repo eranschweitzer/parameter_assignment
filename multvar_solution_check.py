@@ -12,7 +12,7 @@ def rescheck(data):
     
     N = data['G'].number_of_nodes()
     L = data['G'].number_of_edges()
-    Y = hlp.Yparts(data['r'],data['x'],b=data['b'])
+    Y = hlp.Yparts(data['r'],data['x'],b=data['b'],tau=data['tap'],phi=data['shift'])
 
     Pf = np.empty(L)
     Qf = np.empty(L)

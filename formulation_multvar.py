@@ -24,21 +24,21 @@ def mycallback(model,where):
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIPSOL_SOLCNT) + 1
         obj          = model.cbGet(gb.GRB.Callback.MIPSOL_OBJBST)
-        if ((solcnt > 1) and elapsed_time > 500) or (elapsed_time > 1500):
+        if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
             logging.info('      terminating in MISOL')
             model.terminate()
     elif where == gb.GRB.Callback.MIP:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIP_SOLCNT)
         obj          = model.cbGet(gb.GRB.Callback.MIP_OBJBST)
-        if ((solcnt > 1) and elapsed_time > 500) or (elapsed_time > 1500):
+        if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
             logging.info('      terminating in MIP')
             model.terminate()
     elif where == gb.GRB.Callback.MIPNODE:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIPNODE_SOLCNT)
         obj          = model.cbGet(gb.GRB.Callback.MIPNODE_OBJBST)
-        if ((solcnt > 1) and elapsed_time > 500) or (elapsed_time > 1500):
+        if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
             logging.info('      terminating in MIPNODE')
             model.terminate()
     else:
@@ -58,19 +58,19 @@ def mycallback2(model,where):
     if where == gb.GRB.Callback.MIPSOL:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIPSOL_SOLCNT) + 1
-        if ((solcnt > 1) and elapsed_time > 500) or (elapsed_time > 1500): 
+        if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500): 
             logging.info('      terminating in MISOL due to time')
             model.terminate()
     elif where == gb.GRB.Callback.MIP:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIP_SOLCNT)
-        if ((solcnt > 1) and elapsed_time > 500) or (elapsed_time > 1500):
+        if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
             logging.info('      terminating in MIP due to time')
             model.terminate()
     elif where == gb.GRB.Callback.MIPNODE:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIPNODE_SOLCNT)
-        if ((solcnt > 1) and elapsed_time > 500) or (elapsed_time > 1500):
+        if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
             logging.info('      terminating in MIPNODE due to time')
             model.terminate()
     else:
@@ -82,7 +82,7 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     L = G.number_of_edges()
 
     ### get primitive admittance values ####
-    Y = hlp.Yparts(z['r'],z['x'],b=z['b'])
+    Y = hlp.Yparts(z['r'],z['x'],b=z['b'],tau=z['tap'],phi=z['shift'])
     limitflag = np.all(z['rate'] == z['rate'][0])
 
     m = gb.Model()
@@ -90,7 +90,7 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     m.setParam('LogToConsole',0)
     m.setParam('MIPGap',0.15)
     #m.setParam('SolutionLimit',1) #stop after this many solutions are found
-    m.setParam('TimeLimit', 1500)
+    #m.setParam('TimeLimit', 1500)
     m.setParam('MIPFocus',1)
     m.setParam('ImproveStartTime',60)
     m.setParam('Threads',60)
@@ -114,16 +114,10 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     Qgp   = m.addVars(N,lb=0, name="Qgp")
     Qgn   = m.addVars(N,lb=0, name="Qgn")
 
-    if not limitflag:
-        Pf = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Pf")
-        Pt = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Pt")
-        Qf = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qf")
-        Qt = m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qt")
-    else:
-        Pf = m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Pf")
-        Pt = m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Pt")
-        Qf = m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Qf")
-        Qt = m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Qt")
+    Pf = m.addVars(L,lb=-fmax, ub=fmax, name="Pf")
+    Pt = m.addVars(L,lb=-fmax, ub=fmax, name="Pt")
+    Qf = m.addVars(L,lb=-fmax, ub=fmax, name="Qf")
+    Qt = m.addVars(L,lb=-fmax, ub=fmax, name="Qt")
 
     m._Pg = Pg
     d = dmax/htheta
@@ -206,10 +200,12 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     vars['Qf']    = hlp.var2mat(Qf, L)
     vars['Pt']    = hlp.var2mat(Pt, L)
     vars['Qt']    = hlp.var2mat(Qt, L)
-    vars['r']     = hlp.var2mat(z['r'], L, perm=Z)
-    vars['x']     = hlp.var2mat(z['x'], L, perm=Z)
-    vars['b']     = hlp.var2mat(z['b'], L, perm=Z)
-    vars['rate']  = hlp.var2mat(z['rate'], L, prem=Z)
+    vars['r']     = hlp.var2mat(z['r'],    L, perm=Z)
+    vars['x']     = hlp.var2mat(z['x'],    L, perm=Z)
+    vars['b']     = hlp.var2mat(z['b'],    L, perm=Z)
+    vars['rate']  = hlp.var2mat(z['rate'], L, perm=Z)
+    vars['tap']   = hlp.var2mat(z['tap'],  L, perm=Z)
+    vars['shift'] = hlp.var2mat(z['shift'],L, perm=Z)
     vars['theta'] = hlp.var2mat(theta, N)
     vars['u']     = hlp.var2mat(u, N)
     vars['phi']   = hlp.var2mat(phi,L)
@@ -231,7 +227,7 @@ class ZoneMILP(object):
         for k,v, in lmap.items():
             rlmap[v] = k
         ### get primitive admittance values ####
-        Y = hlp.Yparts(z['r'],z['x'],b=z['b'])
+        Y = hlp.Yparts(z['r'],z['x'],b=z['b'],tau=z['tap'],phi=z['shift'])
         limitflag = np.all(z['rate'] == z['rate'][0])
         
         ### save inputs
@@ -246,7 +242,7 @@ class ZoneMILP(object):
         self.m.setParam('LogToConsole',0)
         self.m.setParam('MIPGap',0.15)
         #m.setParam('SolutionLimit',1) #stop after this many solutions are found
-        self.m.setParam('TimeLimit', 1500)
+        #self.m.setParam('TimeLimit', 1500)
         self.m.setParam('MIPFocus',1)
         self.m.setParam('ImproveStartTime',60)
         self.m.setParam('Threads',60)
@@ -267,16 +263,10 @@ class ZoneMILP(object):
         self.Pg    = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="Pg")
         self.Qg    = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="Qg")
 
-        if not limitflag:
-            self.Pf    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Pf")
-            self.Pt    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Pt")
-            self.Qf    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qf")
-            self.Qt    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qt")
-        else:
-            self.Pf    = self.m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Pf")
-            self.Pt    = self.m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Pt")
-            self.Qf    = self.m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Qf")
-            self.Qt    = self.m.addVars(L,lb=-z['rate'][0], ub=z['rate'][0], name="Qt")
+        self.Pf    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Pf")
+        self.Pt    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Pt")
+        self.Qf    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Qf")
+        self.Qt    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Qt")
 
         #NOTE: beta and gamma are on EXTERNAL/GLOBAL indexing!!!!
         self.beta   = self.m.addVars(ebound, lb=-fmax, ub=fmax, name='beta')
@@ -408,10 +398,12 @@ class ZoneMILP(object):
         vars['Qf']    = hlp.var2mat(self.Qf, self.L)
         vars['Pt']    = hlp.var2mat(self.Pt, self.L)
         vars['Qt']    = hlp.var2mat(self.Qt, self.L)
-        vars['r']     = hlp.var2mat(self.z['r'], self.L, perm=self.Z)
-        vars['x']     = hlp.var2mat(self.z['x'], self.L, perm=self.Z)
-        vars['b']     = hlp.var2mat(self.z['b'], self.L, perm=self.Z)
+        vars['r']     = hlp.var2mat(self.z['r'],    self.L, perm=self.Z)
+        vars['x']     = hlp.var2mat(self.z['x'],    self.L, perm=self.Z)
+        vars['b']     = hlp.var2mat(self.z['b'],    self.L, perm=self.Z)
         vars['rate']  = hlp.var2mat(self.z['rate'], self.L, perm=self.Z)
+        vars['tap']   = hlp.var2mat(self.z['tap'],  self.L, perm=self.Z)
+        vars['shift'] = hlp.var2mat(self.z['shift'],self.L, perm=self.Z)
         vars['theta'] = hlp.var2mat(self.theta, self.N)
         vars['u']     = hlp.var2mat(self.u, self.N)
         vars['phi']   = hlp.var2mat(self.phi,self.L)

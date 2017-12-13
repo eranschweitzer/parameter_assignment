@@ -39,11 +39,10 @@ def solvers_init(G,Nmax,Nmin,resd,resg,resf,resz,lossmin,lossterm,fmax,dmax,hthe
         logging.info('-------------------')
         ### Sample Power and Impedance ####
         S = hlp.multivar_power_sample(H.number_of_nodes(),resd,resg,resf)
-        z = hlp.multivar_z_sample(H.number_of_edges(),resz, fmaxin=fmax)
-        fmax = max(z['rate']) # update fmax
+        z = hlp.multivar_z_sample(H.number_of_edges(), resz)
         log_samples(S,z)
         ### get primitive admittance values ####
-        Y = hlp.Yparts(z['r'],z['x'],b=z['b'])
+        Y = hlp.Yparts(z['r'],z['x'],b=z['b'],tau=z['tap'],phi=z['shift'])
         bigM = hlp.bigM_calc(Y,fmax,umax,dmax)
         #logging.info('big M: %0.4g', bigM)
         for k,v in bigM.items():

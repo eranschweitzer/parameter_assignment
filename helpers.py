@@ -451,7 +451,7 @@ def multivar_power_sample(N,resd,resg,resf):
         ptr = 0
         """ intermediate buses """
         for i in range(Nintermediate):
-            for k in x:
+            for k in (genlist + loadlist):
                 x[k][ptr] = 0
             ptr += 1
 
@@ -578,7 +578,7 @@ def maxval_rescale(P,Q,Pmin,pavg,qavg,pmax,pmin,qmax,qmin,G):
             Pmin[i] = wp[i].X*Pmin[i]
     return flag,P,Q,Pmin
 
-def multivar_z_sample(M,resz, fmaxin=9):
+def multivar_z_sample(M,resz):
     while True:
         x = {k:np.empty(M) for i,k in resz['order'].items()}
         x['actual_vars'] = resz['actual_vars']
@@ -586,10 +586,6 @@ def multivar_z_sample(M,resz, fmaxin=9):
         NRgX = int(round(resz['RgX']*M))
         NBgX = int(round(resz['BgX']*M))
         B0   = int(round(resz['b0']*M))
-        if 'rate' in zsampdict:
-            fmax = max(fmaxin,resz['max'][zsampdict['rate']])
-        else:
-            fmax = max(fmaxin,resz['vdefault']['rate'])
 
         RgXcnt = 0
         BgXcnt = 0
@@ -606,13 +602,10 @@ def multivar_z_sample(M,resz, fmaxin=9):
                 s = multivar_kde_sample(resz['kde'],actual_vars=resz['actual_vars'])
             if s[zsampdict['r']] > s[zsampdict['x']]:
                 RgXcnt += 1
-            for k in ['r','x','rate']:
-                try:
-                    x[k][i] = s[zsampdict[k]]
-                except KeyError:
-                    x[k][i] = resz['vdefault'][k]
-            if x['rate'][i] == 0:
-                x['rate'][i] = fmax
+            for k,v in zsampdict.items():
+                x[k][i] = s[v]
+            for k,v in resz['vdefault'].items():
+                x[k][i] = v
             x['b'][i] = 0
             
 
@@ -631,8 +624,6 @@ def multivar_z_sample(M,resz, fmaxin=9):
                 x[k][i] = s[v]
             for k,v in resz['vdefault'].items():
                 x[k][i] = v
-            if x['rate'][i] == 0:
-                x['rate'][i] = fmax
         
         if not resz['actual_vars']:
             if 'b' in zsampdict:
@@ -731,7 +722,7 @@ def testing(*args):
     N     = int(args[1])
     M     = int(args[2])
     bus_data, gen_data, branch_data = load_data(fname)
-    resz = ftin.multivariate_z(branch_data,bw_method=0.01)
+    resz,fmax = ftin.multivariate_z(branch_data,bw_method=0.01)
     z    = multivar_z_sample(M,resz)
     dfz  = pd.DataFrame(z)
     import ipdb; ipdb.set_trace()

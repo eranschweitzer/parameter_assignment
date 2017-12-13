@@ -84,7 +84,7 @@ def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,a
             x['Pgmax'][genmap[bus]] += pmax
             x['Pgmin'][genmap[bus]] = np.minimum(x['Pgmin'][genmap[bus]],pmin)
             x['Qgmax'][genmap[bus]] += qmax
-    for i in range(3):
+    for i in range(3-1,-1,-1):
         if np.all(x[order[i]] == x[order[i]][0]):
             vdefault[order[i]] = x[order[i]][0]
             x.pop(order[i],None)
@@ -109,21 +109,38 @@ def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,a
 
     return resd,resg,resf
 
-def multivariate_z(branch_data,bw_method='scott',actual_vars=True, mvabase=100.):
-    order = dict(zip(range(4),['r','x','b','rate']))
-    inkde = list(range(4))
+def set_fmax(data, fmaxin):
+    """ pick a maximum rating, which will be given to all branches with no limit (rate=0).
+        This is taken as the maximum of a user-input fmaxin, and the maximum value in the data.
+    """
+    return max(fmaxin, data.max())
+
+def multivariate_z(branch_data,bw_method='scott',actual_vars=True, mvabase=100., fmaxin=9.):
+
+    fields = ['r','x','b','rate','tap','shift'] ;nf = len(fields)
+    order = dict(zip(range(nf),fields))
+    inkde = list(range(nf))
     vdefault = {}
     M = sum(branch_data.loc[:,'BR_STATUS'] > 0)
+    fmax   = set_fmax(branch_data['RATE_A']/mvabase,fmaxin)
     x = {}
     for i,k in order.items():
         x[k] = np.empty(M)
     ptr = 0
-    for R,X,B,rate,status in zip(branch_data['BR_R'], branch_data['BR_X'], branch_data['BR_B'], branch_data['RATE_A'], branch_data['BR_STATUS']):
+    for R,X,B,rate,tap,shift,status in zip(branch_data['BR_R'], branch_data['BR_X'], branch_data['BR_B'], branch_data['RATE_A'], branch_data['TAP'], branch_data['SHIFT'],branch_data['BR_STATUS']):
         if status > 0:
-            x['r'][ptr] = R; x['x'][ptr] = X ; x['b'][ptr] = B; x['rate'][ptr] = rate/mvabase;
+            x['r'][ptr] = R; x['x'][ptr] = X ; x['b'][ptr] = B; 
+            x['shift'][ptr] = shift*np.pi/180 # convert to radians from degrees
+            if tap == 0:
+                x['tap'][ptr] = 1.
+            else:
+                x['tap'][ptr] = tap
+            if rate == 0:
+                x['rate'][ptr] = fmax
+            else:
+                x['rate'][ptr] = rate/mvabase
             ptr += 1
-    res = {}
-    for i in range(4):
+    for i in range(nf-1,-1,-1):
         if np.all(x[order[i]] == x[order[i]][0]):
             vdefault[order[i]] = x[order[i]][0]
             x.pop(order[i],None)
@@ -149,7 +166,7 @@ def multivariate_z(branch_data,bw_method='scott',actual_vars=True, mvabase=100.)
         res['BgX']   = 0
         res['b0']    = 0
         res['bmean'] = 0
-    return res
+    return res, fmax
 
 def kde_fit(x,bw_method='scott'):
     """ returns a kde object fit to the values in x """
