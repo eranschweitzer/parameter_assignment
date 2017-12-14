@@ -46,6 +46,9 @@ def main(savename, fdata, Nmax=400, Nmin=50, actual_vars_d=False, actual_vars_g=
     
     ##### Load Data ######### 
     bus_data, gen_data, branch_data = hlp.load_data(fdata)
+    vmax = bus_data['VM'].max(); vmin = bus_data['VM'].min()
+    umin = min(umin,np.log(vmin))
+    umax = max(umax,np.log(vmax))
 
     #### Get Topology ########
     G = init.topology(bus_data,branch_data)
@@ -177,8 +180,8 @@ def log_optimization_consts(lossmin,lossterm,fmax,dmax,htheta,umin,umax,bigM=Non
     logging.info('Flow Max (P or Q)    [p.u]: %0.2f',fmax)
     logging.info('Angle Difference Max [rad]: %0.4f',dmax)
     logging.info('htheta: %d',htheta)
-    logging.info('u min: %0.4f', umin)
-    logging.info('u max: %0.4f', umax)
+    logging.info('u min (v min): %0.4f (%0.4f)', umin, np.exp(umin))
+    logging.info('u max (v max): %0.4f (%0.4f)', umax, np.exp(umax))
     logging.info('minimum losses: %d%%, terminating losses: %d%%', 100*lossmin, 100*lossterm)
     if bigM is not None:
         #logging.info('big M: %0.4g', bigM)
