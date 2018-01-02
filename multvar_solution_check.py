@@ -20,10 +20,10 @@ def rescheck(data):
     Qt = np.empty(L)
     delta = np.empty(L)
     for n1,n2,l in data['G'].edges_iter(data='id'):
-        Pf[l] =  Y['gff'][l]*(1 + data['u'][n1]) + Y['gft'][l]*(1 - data['phi'][l] + data['u'][n2]) - Y['bft'][l]*(data['theta'][n2] - data['theta'][n1])
-        Qf[l] = -Y['bff'][l]*(1 + data['u'][n1]) - Y['bft'][l]*(1 + data['phi'][l] + data['u'][n2]) + Y['gft'][l]*(data['theta'][n2] - data['theta'][n1])
+        Pf[l] =  Y['gff'][l]*(1 + data['u'][n1]) + Y['gft'][l]*(1 - data['phi'][l] + data['u'][n2]) + Y['bft'][l]*(data['theta'][n1] - data['theta'][n2])
+        Qf[l] = -Y['bff'][l]*(1 + data['u'][n1]) - Y['bft'][l]*(1 - data['phi'][l] + data['u'][n2]) + Y['gft'][l]*(data['theta'][n1] - data['theta'][n2])
         Pt[l] =  Y['gtt'][l]*(1 + data['u'][n2]) + Y['gtf'][l]*(1 - data['phi'][l] + data['u'][n1]) - Y['btf'][l]*(data['theta'][n1] - data['theta'][n2])
-        Qt[l] = -Y['btt'][l]*(1 + data['u'][n2]) - Y['btf'][l]*(1 + data['phi'][l] + data['u'][n1]) + Y['gtf'][l]*(data['theta'][n1] - data['theta'][n2])
+        Qt[l] = -Y['btt'][l]*(1 + data['u'][n2]) - Y['btf'][l]*(1 - data['phi'][l] + data['u'][n1]) - Y['gtf'][l]*(data['theta'][n1] - data['theta'][n2])
         delta[l] = data['theta'][n1] - data['theta'][n2]
 
     phierr = 0.5*delta**2 - data['phi']

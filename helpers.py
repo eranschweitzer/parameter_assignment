@@ -712,12 +712,37 @@ def Yparts(r,x,b=None,tau=None,phi=None):
     return {'gff': gff, 'gft': gft, 'gtf':gtf, 'gtt':gtt, 'bff': bff, 'bft': bft, 'btf':btf, 'btt':btt}
     
 def bigM_calc(Y,fmax,umax,dmax,margin=1.1):
+    #bigM = {}
+    #bigM['pf']  = margin*(fmax + max(Y['gff'] + Y['gft'])*(1+umax) + max(np.abs(Y['bft']))*dmax - min(Y['gft'])*0.5*dmax**2)
+    #bigM['qf']  = margin*(fmax + max(Y['bff'] + Y['bft'])*(1+umax) + max(np.abs(Y['gft']))*dmax - min(Y['bft'])*0.5*dmax**2)
+    #bigM['pt']  = margin*(fmax + max(Y['gtt'] + Y['gtf'])*(1+umax) + max(np.abs(Y['btf']))*dmax - min(Y['gtf'])*0.5*dmax**2)
+    #bigM['qt']  = margin*(fmax + max(Y['btt'] + Y['btf'])*(1+umax) + max(np.abs(Y['gtf']))*dmax - min(Y['btf'])*0.5*dmax**2)
+
+    xmax = {}; xmin = {}
+    xmax['pf'] = max(Y['gff'] + Y['gft'])
+    xmin['pf'] = min(Y['gff'] + Y['gft'])
+    xmax['pt'] = max(Y['gtt'] + Y['gtf'])
+    xmin['pt'] = min(Y['gtt'] + Y['gtf'])
+    xmax['qf'] = max(Y['bff'] + Y['bft'])
+    xmin['qf'] = min(Y['bff'] + Y['bft'])
+    xmax['qt'] = max(Y['btt'] + Y['btf'])
+    xmin['qt'] = min(Y['btt'] + Y['btf'])
+
+    Mpf1 = fmax + max(xmax['pf']*(1+umax),xmax['pf']*(1+umin)) - min(min(Y['gft'])*0.5*dmax*dmax,0) + max(np.abs(Y['bft']))*dmax
+    Mpf2 = fmax - min(xmin['pf']*(1+umax),xmin['pf']*(1+umin)) + max(max(Y['gft'])*0.5*dmax*dmax,0) + max(np.abs(Y['bft']))*dmax
+    Mpt1 = fmax + max(xmax['pt']*(1+umax),xmax['pt']*(1+umin)) - min(min(Y['gtf'])*0.5*dmax*dmax,0) + max(np.abs(Y['btf']))*dmax
+    Mpt2 = fmax - min(xmin['pt']*(1+umax),xmin['pt']*(1+umin)) + max(max(Y['gtf'])*0.5*dmax*dmax,0) + max(np.abs(Y['btf']))*dmax
+
+    Mqf1 = fmax - min(xmin['qf']*(1+umax),xmin['qf']*(1+umin)) + max(max(Y['bft'])*0.5*dmax*dmax,0) + max(np.abs(Y['gft']))*dmax
+    Mqf2 = fmax + max(xmax['qf']*(1+umax),xmax['qf']*(1+umin)) - min(min(Y['bft'])*0.5*dmax*dmax,0) + max(np.abs(Y['gft']))*dmax
+    Mqt1 = fmax - min(xmin['qt']*(1+umax),xmin['qt']*(1+umin)) + max(max(Y['btf'])*0.5*dmax*dmax,0) + max(np.abs(Y['gtf']))*dmax
+    Mqt2 = fmax + max(xmax['qt']*(1+umax),xmax['qt']*(1+umin)) - min(min(Y['btf'])*0.5*dmax*dmax,0) + max(np.abs(Y['gtf']))*dmax
+
     bigM = {}
-    bigM['pf']  = margin*(fmax + max(Y['gff'] + Y['gft'])*(1+umax) + max(np.abs(Y['bft']))*dmax - min(Y['gft'])*0.5*dmax**2)
-    bigM['qf']  = margin*(fmax + max(Y['bff'] + Y['bft'])*(1+umax) + max(np.abs(Y['gft']))*dmax - min(Y['bft'])*0.5*dmax**2)
-    bigM['pt']  = margin*(fmax + max(Y['gtt'] + Y['gtf'])*(1+umax) + max(np.abs(Y['btf']))*dmax - min(Y['gtf'])*0.5*dmax**2)
-    bigM['qt']  = margin*(fmax + max(Y['btt'] + Y['btf'])*(1+umax) + max(np.abs(Y['gtf']))*dmax - min(Y['btf'])*0.5*dmax**2)
-    #return max(Mpf,Mqf,Mpt,Mqt)*margin
+    bigM['pf']  = margin*max(Mpf1,Mpf2)
+    bigM['pt']  = margin*max(Mpt1,Mpt2)
+    bigM['qf']  = margin*max(Mqf1,Mqf2)
+    bigM['qt']  = margin*max(Mqt1,Mqt2)
     return bigM
 
 def def_consts():

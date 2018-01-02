@@ -163,14 +163,14 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
 
 #    for n1,n2,l in G.edges_iter(data='id'):
         for _,_,l2 in G.edges_iter(data='id'):
-            m.addConstr(Pf[l] - Y['gff'][l2]*(1+u[n1]) - Y['gft'][l2]*(1-phi[l]+u[n2]) + Y['bft'][l2]*(theta[n2] - theta[n1]) + bigM['pf']*(1 - Z[l,l2]) >= 0)
-            m.addConstr(Pf[l] - Y['gff'][l2]*(1+u[n1]) - Y['gft'][l2]*(1-phi[l]+u[n2]) + Y['bft'][l2]*(theta[n2] - theta[n1]) - bigM['pf']*(1 - Z[l,l2]) <= 0)
-            m.addConstr(Qf[l] + Y['bff'][l2]*(1+u[n1]) + Y['bft'][l2]*(1+phi[l]+u[n2]) - Y['gft'][l2]*(theta[n2] - theta[n1]) + bigM['qf']*(1 - Z[l,l2]) >= 0)
-            m.addConstr(Qf[l] + Y['bff'][l2]*(1+u[n1]) + Y['bft'][l2]*(1+phi[l]+u[n2]) - Y['gft'][l2]*(theta[n2] - theta[n1]) - bigM['qf']*(1 - Z[l,l2]) <= 0)
+            m.addConstr(Pf[l] - Y['gff'][l2]*(1+u[n1]) - Y['gft'][l2]*(1-phi[l]+u[n2]) - Y['bft'][l2]*(theta[n1] - theta[n2]) + bigM['pf']*(1 - Z[l,l2]) >= 0)
+            m.addConstr(Pf[l] - Y['gff'][l2]*(1+u[n1]) - Y['gft'][l2]*(1-phi[l]+u[n2]) - Y['bft'][l2]*(theta[n1] - theta[n2]) - bigM['pf']*(1 - Z[l,l2]) <= 0)
+            m.addConstr(Qf[l] + Y['bff'][l2]*(1+u[n1]) + Y['bft'][l2]*(1-phi[l]+u[n2]) - Y['gft'][l2]*(theta[n1] - theta[n2]) + bigM['qf']*(1 - Z[l,l2]) >= 0)
+            m.addConstr(Qf[l] + Y['bff'][l2]*(1+u[n1]) + Y['bft'][l2]*(1-phi[l]+u[n2]) - Y['gft'][l2]*(theta[n1] - theta[n2]) - bigM['qf']*(1 - Z[l,l2]) <= 0)
             m.addConstr(Pt[l] - Y['gtt'][l2]*(1+u[n2]) - Y['gtf'][l2]*(1-phi[l]+u[n1]) + Y['btf'][l2]*(theta[n1] - theta[n2]) + bigM['pt']*(1 - Z[l,l2]) >= 0)
             m.addConstr(Pt[l] - Y['gtt'][l2]*(1+u[n2]) - Y['gtf'][l2]*(1-phi[l]+u[n1]) + Y['btf'][l2]*(theta[n1] - theta[n2]) - bigM['pt']*(1 - Z[l,l2]) <= 0)
-            m.addConstr(Qt[l] + Y['btt'][l2]*(1+u[n2]) + Y['btf'][l2]*(1+phi[l]+u[n1]) - Y['gtf'][l2]*(theta[n1] - theta[n2]) + bigM['qt']*(1 - Z[l,l2]) >= 0)
-            m.addConstr(Qt[l] + Y['btt'][l2]*(1+u[n2]) + Y['btf'][l2]*(1+phi[l]+u[n1]) - Y['gtf'][l2]*(theta[n1] - theta[n2]) - bigM['qt']*(1 - Z[l,l2]) <= 0)
+            m.addConstr(Qt[l] + Y['btt'][l2]*(1+u[n2]) + Y['btf'][l2]*(1-phi[l]+u[n1]) + Y['gtf'][l2]*(theta[n1] - theta[n2]) + bigM['qt']*(1 - Z[l,l2]) >= 0)
+            m.addConstr(Qt[l] + Y['btt'][l2]*(1+u[n2]) + Y['btf'][l2]*(1-phi[l]+u[n1]) + Y['gtf'][l2]*(theta[n1] - theta[n2]) - bigM['qt']*(1 - Z[l,l2]) <= 0)
 
     m.addConstrs( Pd[i] == sum(Pi[i,j]*S['Pd'][j] for j in range(N))/100 for i in range(N))
     m.addConstrs( Qd[i] == sum(Pi[i,j]*S['Qd'][j] for j in range(N))/100 for i in range(N))
@@ -373,14 +373,14 @@ class ZoneMILP(object):
 
             for _,_,_l2 in G.edges_iter(data='id'):
                 l2 = lmap[_l2]
-                self.m.addConstr( self.Pf[l] - Y['gff'][l2]*(1+self.u[n1]) - Y['gft'][l2]*(1-self.phi[l]+self.u[n2]) + Y['bft'][l2]*(self.theta[n2] - self.theta[n1]) + bigM['pf']*(1 - self.Z[l,l2]) >= 0)
-                self.m.addConstr( self.Pf[l] - Y['gff'][l2]*(1+self.u[n1]) - Y['gft'][l2]*(1-self.phi[l]+self.u[n2]) + Y['bft'][l2]*(self.theta[n2] - self.theta[n1]) - bigM['pf']*(1 - self.Z[l,l2]) <= 0)
-                self.m.addConstr( self.Qf[l] + Y['bff'][l2]*(1+self.u[n1]) + Y['bft'][l2]*(1+self.phi[l]+self.u[n2]) - Y['gft'][l2]*(self.theta[n2] - self.theta[n1]) + bigM['qf']*(1 - self.Z[l,l2]) >= 0)
-                self.m.addConstr( self.Qf[l] + Y['bff'][l2]*(1+self.u[n1]) + Y['bft'][l2]*(1+self.phi[l]+self.u[n2]) - Y['gft'][l2]*(self.theta[n2] - self.theta[n1]) - bigM['qf']*(1 - self.Z[l,l2]) <= 0)
+                self.m.addConstr( self.Pf[l] - Y['gff'][l2]*(1+self.u[n1]) - Y['gft'][l2]*(1-self.phi[l]+self.u[n2]) - Y['bft'][l2]*(self.theta[n1] - self.theta[n2]) + bigM['pf']*(1 - self.Z[l,l2]) >= 0)
+                self.m.addConstr( self.Pf[l] - Y['gff'][l2]*(1+self.u[n1]) - Y['gft'][l2]*(1-self.phi[l]+self.u[n2]) - Y['bft'][l2]*(self.theta[n1] - self.theta[n2]) - bigM['pf']*(1 - self.Z[l,l2]) <= 0)
+                self.m.addConstr( self.Qf[l] + Y['bff'][l2]*(1+self.u[n1]) + Y['bft'][l2]*(1-self.phi[l]+self.u[n2]) - Y['gft'][l2]*(self.theta[n1] - self.theta[n2]) + bigM['qf']*(1 - self.Z[l,l2]) >= 0)
+                self.m.addConstr( self.Qf[l] + Y['bff'][l2]*(1+self.u[n1]) + Y['bft'][l2]*(1-self.phi[l]+self.u[n2]) - Y['gft'][l2]*(self.theta[n1] - self.theta[n2]) - bigM['qf']*(1 - self.Z[l,l2]) <= 0)
                 self.m.addConstr( self.Pt[l] - Y['gtt'][l2]*(1+self.u[n2]) - Y['gtf'][l2]*(1-self.phi[l]+self.u[n1]) + Y['btf'][l2]*(self.theta[n1] - self.theta[n2]) + bigM['pt']*(1 - self.Z[l,l2]) >= 0)
                 self.m.addConstr( self.Pt[l] - Y['gtt'][l2]*(1+self.u[n2]) - Y['gtf'][l2]*(1-self.phi[l]+self.u[n1]) + Y['btf'][l2]*(self.theta[n1] - self.theta[n2]) - bigM['pt']*(1 - self.Z[l,l2]) <= 0)
-                self.m.addConstr( self.Qt[l] + Y['btt'][l2]*(1+self.u[n2]) + Y['btf'][l2]*(1+self.phi[l]+self.u[n1]) - Y['gtf'][l2]*(self.theta[n1] - self.theta[n2]) + bigM['qt']*(1 - self.Z[l,l2]) >= 0)
-                self.m.addConstr( self.Qt[l] + Y['btt'][l2]*(1+self.u[n2]) + Y['btf'][l2]*(1+self.phi[l]+self.u[n1]) - Y['gtf'][l2]*(self.theta[n1] - self.theta[n2]) - bigM['qt']*(1 - self.Z[l,l2]) <= 0)
+                self.m.addConstr( self.Qt[l] + Y['btt'][l2]*(1+self.u[n2]) + Y['btf'][l2]*(1-self.phi[l]+self.u[n1]) + Y['gtf'][l2]*(self.theta[n1] - self.theta[n2]) + bigM['qt']*(1 - self.Z[l,l2]) >= 0)
+                self.m.addConstr( self.Qt[l] + Y['btt'][l2]*(1+self.u[n2]) + Y['btf'][l2]*(1-self.phi[l]+self.u[n1]) + Y['gtf'][l2]*(self.theta[n1] - self.theta[n2]) - bigM['qt']*(1 - self.Z[l,l2]) <= 0)
 
         self.m.addConstrs( self.Pd[i] ==  sum( self.Pi[i,j]*S['Pd'][j]    for j in range(N) )/100 for i in range(N))
         self.m.addConstrs( self.Qd[i] ==  sum( self.Pi[i,j]*S['Qd'][j]    for j in range(N) )/100 for i in range(N))
