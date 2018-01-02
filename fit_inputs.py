@@ -59,7 +59,7 @@ def analyze_reactance_statistics(x, fit='pchip', print_out=True):
         print("%0.3g <= x <= %0.3g" %(vmin, vmax))
     return {'vmax': vmax, 'vmin': vmin, fit:fit_obj}
 
-def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,actual_vars_g=True):
+def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,actual_vars_g=True,mvabase=100, Bfracmin=0.1, Bshmin=3.0, include_shunts=True):
 
     N = bus_data.shape[0]
     """ Load """
@@ -68,6 +68,16 @@ def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,a
     resd['max'] = bus_data.loc[:,['PD','QD']].max(axis=0).values
     resd['min'] = bus_data.loc[:,['PD','QD']].min(axis=0).values
     resd['actual_vars'] = actual_vars_d
+    resd['shunt'] = {}
+    resd['shunt']['include_shunts'] = include_shunts
+    resd['shunt']['max'] = bus_data.loc[:,['GS','BS']].max(axis=0).values/mvabase
+    resd['shunt']['min'] = bus_data.loc[:,['GS','BS']].min(axis=0).values/mvabase
+    resd['shunt']['Gfrac']= sum(bus_data['GS'] != 0)/N
+    resd['shunt']['Bfrac']= sum(bus_data['BS'] != 0)/N
+
+    if resd['shunt']['Bfrac'] == 0:
+        resd['shunt']['Bfrac'] = Bfracmin
+        resd['shunt']['max'][1] = Bshmin
 
     """ gen """
     order = dict(zip(range(3),['Pgmax','Pgmin','Qgmax']))
@@ -115,7 +125,7 @@ def set_fmax(data, fmaxin):
     """
     return max(fmaxin, data.max())
 
-def multivariate_z(branch_data,bw_method='scott',actual_vars=True, mvabase=100., fmaxin=9.):
+def multivariate_z(branch_data,bw_method='scott',actual_vars=True, mvabase=100., fmaxin=9., const_rate=False):
 
     fields = ['r','x','b','rate','tap','shift'] ;nf = len(fields)
     order = dict(zip(range(nf),fields))
@@ -135,7 +145,7 @@ def multivariate_z(branch_data,bw_method='scott',actual_vars=True, mvabase=100.,
                 x['tap'][ptr] = 1.
             else:
                 x['tap'][ptr] = tap
-            if rate == 0:
+            if (rate == 0) or const_rate:
                 x['rate'][ptr] = fmax
             else:
                 x['rate'][ptr] = rate/mvabase
@@ -223,8 +233,8 @@ if __name__ == "__main__":
     bus_data, gen_data, branch_data = hlp.load_data(fname)
     resz = multivariate_z(branch_data)
     import ipdb; ipdb.set_trace()
-    sys.exit(0)
     resd,resg,resf = multivariate_power(bus_data,gen_data)
+    sys.exit(0)
     Pd = bus_data['PD'].values
     x = branch_data['BR_X'].values
     Pg = np.zeros(bus_data.shape[0])

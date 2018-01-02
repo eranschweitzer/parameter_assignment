@@ -37,10 +37,14 @@ def rescheck(data):
         Ptn[n2] += data['Pt'][l]
         Qfn[n1] += data['Qf'][l]
         Qtn[n2] += data['Qt'][l]
-
+    
+    if 'GS' not in data:
+        data['GS'] = 0
+    if 'BS' not in data:
+        data['BS'] = 0
     balance = {}
-    balance['P'] = data['Pg'] - data['Pd'] - Pfn - Ptn
-    balance['Q'] = data['Qg'] - data['Qd'] - Qfn - Qtn
+    balance['P'] = data['Pg'] - data['GS'] - data['Pd'] - Pfn - Ptn
+    balance['Q'] = data['Qg'] + data['BS'] - data['Qd'] - Qfn - Qtn
 
     Plim = {}
     Plim['max'] = (data['Pg']*100 - data['Pgmax']) > 1e-6
@@ -69,6 +73,19 @@ def rescheck(data):
     logging.info('Maximum v: %0.3f, Minimum v: %0.3f' , max(np.exp(data['u'])), min(np.exp(data['u'])))
     logging.info('Pmax violations: %d, Pmin violations: %d' ,sum(Plim['max']), sum(Plim['min']))
     logging.info('Qmax violations: %d, Qmin violations: %d' ,sum(Qlim['max']), sum(Qlim['min']))
+    logging.info('Shunts:')
+    if not isinstance(data['GS'],int):
+        logging.info('Number of Gsh: %d', sum(data['GS'] != 0))
+        if np.any(data['GS'] != 0):
+            logging.info('GS (min, max): %0.3f, %0.3f', min(data['GS'][data['GS'] != 0]), max(data['GS'][data['GS'] != 0]))
+    else:
+        logging.info('No Gsh')
+    if not isinstance(data['BS'],int):
+        logging.info('Number of Bsh: %d', sum(data['BS'] != 0))
+        if np.any(data['BS'] != 0):
+            logging.info('BS (min, max): %0.3f, %0.3f', min(data['BS'][data['BS'] != 0]), max(data['BS'][data['BS'] != 0]))
+    else:
+        logging.info('No Bsh')
 
 if __name__ == '__main__':
     import sys

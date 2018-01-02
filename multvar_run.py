@@ -12,7 +12,7 @@ import helpers as hlp
 import multvar_init as init
 
 
-def main(savename, fdata, Nmax=400, Nmin=50, actual_vars_d=False, actual_vars_g=True, actual_vars_z=True):
+def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=True, actual_vars_d=False, actual_vars_g=True, actual_vars_z=True):
 
     start = time.time()
     FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
@@ -28,6 +28,8 @@ def main(savename, fdata, Nmax=400, Nmin=50, actual_vars_d=False, actual_vars_g=
     actual_vars_z = actual_vars_z in truelist
     actual_vars_d = actual_vars_d in truelist
     actual_vars_g = actual_vars_g in truelist
+    include_shunts= include_shunts in truelist
+    const_rate    = const_rate in truelist
 
     ##### Define Constants ###############
     Nmax = int(Nmax); Nmin = int(Nmin)
@@ -59,8 +61,8 @@ def main(savename, fdata, Nmax=400, Nmin=50, actual_vars_d=False, actual_vars_g=
 
     #### Fit Power and Impedance Data #### 
     import fit_inputs as ftin
-    resz,fmax = ftin.multivariate_z(branch_data, bw_method=0.01, actual_vars=actual_vars_z, fmaxin=fmax)
-    resd,resg,resf = ftin.multivariate_power(bus_data, gen_data, actual_vars_d=actual_vars_d, actual_vars_g=actual_vars_g)
+    resz,fmax = ftin.multivariate_z(branch_data, bw_method=0.01, actual_vars=actual_vars_z, fmaxin=fmax, const_rate=const_rate)
+    resd,resg,resf = ftin.multivariate_power(bus_data, gen_data, actual_vars_d=actual_vars_d, actual_vars_g=actual_vars_g, include_shunts=include_shunts)
 
     #### optimization ########
     import formulation_multvar as fm
@@ -161,6 +163,13 @@ def log_input_samples(S,z):
         logging.info('min (non 0): %0.4f MW', min(S['Pgmin'][S['Pgmin'] != 0]))
         logging.info('Avg (non 0): %0.4f WM', np.mean(S['Pgmin'][S['Pgmin'] != 0]))
         logging.info('Std (non 0): %0.4f WM', np.std(S['Pgmin'][S['Pgmin'] != 0]))
+    logging.info('Shunt:')
+    if S['shunt']['include_shunts']:
+        logging.info('fraction  (g,b): %0.4f, %0.4f', S['shunt']['Gfrac'], S['shunt']['Bfrac'])
+        logging.info('max [p.u] (g,b): %0.4f, %0.4f', S['shunt']['max'][0], S['shunt']['max'][1])
+        logging.info('min [p.u] (g,b): %0.4f, %0.4f', S['shunt']['min'][0], S['shunt']['min'][1])
+    else:
+        logging.info('Shunts disabled')
 
     logging.info('------Impedance Info----------')
     try:

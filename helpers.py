@@ -531,8 +531,10 @@ def multivar_power_sample(N,resd,resg,resf):
             #x['Pgmax'] = x['Pgmax']*(resf['PgAvg']/pavg)
             #x['Qgmax'] = x['Qgmax']*(resf['QgAvg']/qavg)
             if flag:
+                x['shunt'] = resd['shunt']
                 break
         else:
+            x['shunt'] = resd['shunt']
             break
     return x
 
@@ -585,7 +587,10 @@ def multivar_z_sample(M,resz):
         zsampdict = {resz['order'][j]:i for i,j in enumerate(resz['inkde'])}
         NRgX = int(round(resz['RgX']*M))
         NBgX = int(round(resz['BgX']*M))
-        B0   = int(round(resz['b0']*M))
+        if resz['actual_vars']:
+            B0 = 0 # no special zero b sampling if actual samples used
+        else:
+            B0   = int(round(resz['b0']*M))
 
         RgXcnt = 0
         BgXcnt = 0
@@ -715,6 +720,21 @@ def bigM_calc(Y,fmax,umax,dmax,margin=1.1):
     #return max(Mpf,Mqf,Mpt,Mqt)*margin
     return bigM
 
+def def_consts():
+    c    = {}
+    c['fmax'] = 9            # default per unit maximum real power flow on line
+    c['dmax'] = 40*np.pi/180 # angle difference limit over a branch
+    c['htheta'] = 7          # number of segments for approximating (theta_f - theta_t)^2/2
+    c['umin'] = np.log(0.9)  # minimum ln(voltage)
+    c['umax'] = np.log(1.05) # maximum ln(voltage)
+    c['lossmin'] = 0.01      # minimum losses required (fraction = (Pg - Pd)/Pg)
+    c['lossterm']= 0.05      # terminate optimization when if losses are at this level or below
+    c['thresholds'] = {'gap':       5,
+                  'mean_diff': 0.05,
+                  'max_diff':  0.1,
+                  'itermax':   5}
+    c['rho'] = 1
+    return c
 
 def testing(*args):
     import fit_inputs as ftin 
@@ -728,7 +748,7 @@ def testing(*args):
     import ipdb; ipdb.set_trace()
     res = ftin.multivariate_power(bus_data,gen_data)
     x = multivar_power_sample(N,*res)
-    df = pd.DataFrame(x)
+    df = pd.DataFrame({k:v for k,v in x.items() if k!='shunt'})
     import ipdb; ipdb.set_trace()
     
 

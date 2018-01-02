@@ -8,6 +8,8 @@ def savempc(dataname,savename):
 
     N = data['G'].number_of_nodes()
     L = data['G'].number_of_edges()
+    vmax = np.exp(np.max(data['u']))
+    vmin = np.exp(np.min(data['u']))
     
     ################
     # Branch Matrix
@@ -75,15 +77,21 @@ def savempc(dataname,savename):
             bus[i,1] = 1 #PQ bus
         bus[i,2] = 100*data['Pd'][i]       # real power
         bus[i,3] = 100*data['Qd'][i]       # reactive power
-        bus[i,4] = 0                       # shunt conductance
-        bus[i,5] = 0                       # shunt susceptance
+        try:
+            bus[i,4] = 100*data['GS'][i]
+        except KeyError:
+            bus[i,4] = 0                       # shunt conductance
+        try:
+            bus[i,5] = 100*data['BS'][i]
+        except KeyError:
+            bus[i,5] = 0                       # shunt susceptance
         bus[i,6] = 1                       # bus area
         bus[i,7] = np.exp(data['u'][i])    # voltage magnitude
         bus[i,8] = data['theta'][i]*180/np.pi # bus angle
         bus[i,9] = 220                     # base kV
         bus[i,10]= 1                       # Zone
-        bus[i,11]= 1.1                     # maximum voltage magnitude (p.u.)
-        bus[i,12]= 0.9                     # minimum voltage magnitude (p.u.)
+        bus[i,11]= vmax                    # maximum voltage magnitude (p.u.)
+        bus[i,12]= vmin                    # minimum voltage magnitude (p.u.)
 
     ##################
     # Generator Cost

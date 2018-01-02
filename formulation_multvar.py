@@ -29,14 +29,14 @@ def mycallback(model,where):
             model.terminate()
     elif where == gb.GRB.Callback.MIP:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
-        solcnt       = model.cbGet(gb.GRB.Callback.MIP_SOLCNT)
+        solcnt       = model.cbGet(gb.GRB.Callback.MIP_SOLCNT) + 1
         obj          = model.cbGet(gb.GRB.Callback.MIP_OBJBST)
         if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
             logging.info('      terminating in MIP')
             model.terminate()
     elif where == gb.GRB.Callback.MIPNODE:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
-        solcnt       = model.cbGet(gb.GRB.Callback.MIPNODE_SOLCNT)
+        solcnt       = model.cbGet(gb.GRB.Callback.MIPNODE_SOLCNT) + 1
         obj          = model.cbGet(gb.GRB.Callback.MIPNODE_OBJBST)
         if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
             logging.info('      terminating in MIPNODE')
@@ -63,13 +63,13 @@ def mycallback2(model,where):
             model.terminate()
     elif where == gb.GRB.Callback.MIP:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
-        solcnt       = model.cbGet(gb.GRB.Callback.MIP_SOLCNT)
+        solcnt       = model.cbGet(gb.GRB.Callback.MIP_SOLCNT) + 1
         if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
             logging.info('      terminating in MIP due to time')
             model.terminate()
     elif where == gb.GRB.Callback.MIPNODE:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
-        solcnt       = model.cbGet(gb.GRB.Callback.MIPNODE_SOLCNT)
+        solcnt       = model.cbGet(gb.GRB.Callback.MIPNODE_SOLCNT) + 1
         if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
             logging.info('      terminating in MIPNODE due to time')
             model.terminate()
@@ -80,6 +80,13 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
 
     N = G.number_of_nodes()
     L = G.number_of_edges()
+
+    ### shunt impedances numbers ###########
+    if S['shunt']['include_shunts']:
+        Ngsh = round(S['shunt']['Gfrac']*N)
+        Nbsh = round(S['shunt']['Bfrac']*N)
+    else:
+        Ngsh = 0; Nbsh = 0;
 
     ### get primitive admittance values ####
     Y = hlp.Yparts(z['r'],z['x'],b=z['b'],tau=z['tap'],phi=z['shift'])
@@ -111,8 +118,18 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     Qd    = m.addVars(N,lb=-gb.GRB.INFINITY, name="Qd")
     Pg    = m.addVars(N,lb=-gb.GRB.INFINITY, name="Pg")
     Qg    = m.addVars(N,lb=-gb.GRB.INFINITY, name="Qg")
-    Qgp   = m.addVars(N,lb=0, name="Qgp")
-    Qgn   = m.addVars(N,lb=0, name="Qgn")
+    if Ngsh > 0:
+        Psh = m.addVars(N,lb=S['shunt']['min'][0],ub=S['shunt']['max'][0])
+        gsh = m.addVars(N,vtype=gb.GRB.BINARY)
+    else:
+        Psh = np.zeros(N)
+    if Nbsh > 0:
+        Qsh = m.addVars(N,lb=S['shunt']['min'][1],ub=S['shunt']['max'][1])
+        Qshp= m.addVars(N,lb=0,ub=S['shunt']['max'][1])
+        Qshn= m.addVars(N,lb=0,ub=S['shunt']['max'][1])
+        bsh = m.addVars(N,vtype=gb.GRB.BINARY)
+    else:
+        Qsh = np.zeros(N)
 
     Pf = m.addVars(L,lb=-fmax, ub=fmax, name="Pf")
     Pt = m.addVars(L,lb=-fmax, ub=fmax, name="Pt")
@@ -131,14 +148,14 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
 
         ##### flow limits #########
         if limitflag:
-            m.addConstr( sum( Z[l,i]*Pf[i] for i in range(L) ) <=  z['rate'][l] )
-            m.addConstr( sum( Z[l,i]*Pf[i] for i in range(L) ) >= -z['rate'][l] )
-            m.addConstr( sum( Z[l,i]*Pt[i] for i in range(L) ) <=  z['rate'][l] )
-            m.addConstr( sum( Z[l,i]*Pt[i] for i in range(L) ) >= -z['rate'][l] )
-            m.addConstr( sum( Z[l,i]*Qf[i] for i in range(L) ) <=  z['rate'][l] )
-            m.addConstr( sum( Z[l,i]*Qf[i] for i in range(L) ) >= -z['rate'][l] )
-            m.addConstr( sum( Z[l,i]*Qt[i] for i in range(L) ) <=  z['rate'][l] )
-            m.addConstr( sum( Z[l,i]*Qt[i] for i in range(L) ) >= -z['rate'][l] )
+            m.addConstr(-sum( Z[l,i]*z['rate'][i] for i in range(L) ) <= Pf[l] )
+            m.addConstr( sum( Z[l,i]*z['rate'][i] for i in range(L) ) >= Pf[l] )
+            m.addConstr(-sum( Z[l,i]*z['rate'][i] for i in range(L) ) <= Pt[l] )
+            m.addConstr( sum( Z[l,i]*z['rate'][i] for i in range(L) ) >= Pt[l] )
+            m.addConstr(-sum( Z[l,i]*z['rate'][i] for i in range(L) ) <= Qf[l] )
+            m.addConstr( sum( Z[l,i]*z['rate'][i] for i in range(L) ) >= Qf[l] )
+            m.addConstr(-sum( Z[l,i]*z['rate'][i] for i in range(L) ) <= Qt[l] )
+            m.addConstr( sum( Z[l,i]*z['rate'][i] for i in range(L) ) >= Qt[l] )
 
         for t in range(htheta+1):
             m.addConstr(phi[l] >= -0.5*(t*d)**2 + (t*d)*(theta[n1] - theta[n2]))
@@ -158,16 +175,27 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     m.addConstrs( Pd[i] == sum(Pi[i,j]*S['Pd'][j] for j in range(N))/100 for i in range(N))
     m.addConstrs( Qd[i] == sum(Pi[i,j]*S['Qd'][j] for j in range(N))/100 for i in range(N))
     
+    ######## generator limits ##################
     m.addConstrs( Pg[i] <=  sum(Pi[i,j]*S['Pgmax'][j] for j in range(N))/100 for i in range(N))
     m.addConstrs( Pg[i] >=  sum(Pi[i,j]*S['Pgmin'][j] for j in range(N))/100 for i in range(N))
     m.addConstrs( Qg[i] <=  sum(Pi[i,j]*S['Qgmax'][j] for j in range(N))/100 for i in range(N))
     m.addConstrs( Qg[i] >= -sum(Pi[i,j]*S['Qgmax'][j] for j in range(N))/100 for i in range(N))
     
-    m.addConstrs( Qg[i] - Qgp[i] <= 0 for i in range(N))
-    m.addConstrs( Qg[i] + Qgn[i] >= 0 for i in range(N))
+    #### Nodal balance ##########
+    m.addConstrs( Pg[i] - Psh[i] - Pd[i] - sum(Pt[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - sum(Pf[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0 for i in range(N)) 
+    m.addConstrs( Qg[i] + Qsh[i] - Qd[i] - sum(Qt[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - sum(Qf[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0 for i in range(N)) 
 
-    m.addConstrs( Pg[i] - Pd[i] - sum(Pt[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - sum(Pf[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0 for i in range(N)) 
-    m.addConstrs( Qg[i] - Qd[i] - sum(Qt[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - sum(Qf[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0 for i in range(N)) 
+    ###### shunts ##############
+    if Ngsh > 0:
+        m.addConstrs( Psh[i] >= gsh[i]*S['shunt']['min'][0] for i in range(N))
+        m.addConstrs( Psh[i] <= gsh[i]*S['shunt']['max'][0] for i in range(N))
+        m.addConstr(  gsh.sum('*') <= Ngsh )
+    if Nbsh > 0:
+        m.addConstrs( Qsh[i] >= bsh[i]*S['shunt']['min'][1] for i in range(N))
+        m.addConstrs( Qsh[i] <= bsh[i]*S['shunt']['max'][1] for i in range(N))
+        m.addConstr(  bsh.sum('*') <= Nbsh )
+        m.addConstrs( Qsh[i] - Qshp[i] <= 0 for i in range(N))
+        m.addConstrs( Qsh[i] + Qshn[i] >= 0 for i in range(N))
 
     m.addConstrs( Pi.sum(i,'*') == 1 for i in range(N))
     m.addConstrs( Pi.sum('*',i) == 1 for i in range(N))
@@ -178,7 +206,7 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     ###############
     # Objective
     ###############
-    obj = Pg.sum('*') + phi.sum('*')#+ Qgp.sum('*') + Qgn.sum('*')
+    obj = Pg.sum('*') + phi.sum('*') + Qshp.sum('*') + Qshn.sum('*')
 
     ###############
     # Solve
@@ -209,6 +237,10 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     vars['theta'] = hlp.var2mat(theta, N)
     vars['u']     = hlp.var2mat(u, N)
     vars['phi']   = hlp.var2mat(phi,L)
+    if Ngsh > 0:
+        vars['GS']= hlp.var2mat(Psh,N)
+    if Nbsh > 0:
+        vars['BS']= hlp.var2mat(Qsh,N)
     return vars 
 
 class ZoneMILP(object):
@@ -216,6 +248,12 @@ class ZoneMILP(object):
         
         N = G.number_of_nodes()
         L = G.number_of_edges()
+        ### shunt impedances numbers ###########
+        if S['shunt']['include_shunts']:
+            Ngsh = round(S['shunt']['Gfrac']*N)
+            Nbsh = round(S['shunt']['Bfrac']*N)
+        else:
+            Ngsh = 0; Nbsh = 0
         nmap = dict(zip(G.nodes(),range(N)))
         rnmap= np.empty(N,dtype='int')
         for k,v in nmap.items():
@@ -232,6 +270,7 @@ class ZoneMILP(object):
         
         ### save inputs
         self.N = N; self.L = L
+        self.Ngsh = Ngsh; self.Nbsh = Nbsh
         self.z = z; self.S = S
         self.nmap = nmap; self.rnmap = rnmap
         self.lmap = lmap; self.rlmap = rlmap
@@ -255,7 +294,8 @@ class ZoneMILP(object):
         self.Z     = self.m.addVars(L,L,vtype=gb.GRB.BINARY,name="Z")
 
         self.theta = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="theta")
-        self.u     = self.m.addVars(N,lb=umin, ub=umax,name="u")
+        #self.u     = self.m.addVars(N,lb=umin, ub=umax,name="u")
+        self.u     = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="u")
         self.phi   = self.m.addVars(L,lb=0,ub=dmax*dmax/2,name='phi')
 
         self.Pd    = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="Pd")
@@ -263,10 +303,27 @@ class ZoneMILP(object):
         self.Pg    = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="Pg")
         self.Qg    = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="Qg")
 
+        if Ngsh > 0:
+            self.Psh = self.m.addVars(N,lb=S['shunt']['min'][0],ub=S['shunt']['max'][0])
+            self.gsh = self.m.addVars(N,vtype=gb.GRB.BINARY)
+        else:
+            self.Psh = np.zeros(N)
+        if Nbsh > 0:
+            self.Qsh = self.m.addVars(N,lb=S['shunt']['min'][1],ub=S['shunt']['max'][1])
+            self.Qshp= self.m.addVars(N,lb=0,ub=S['shunt']['max'][1])
+            self.Qshn= self.m.addVars(N,lb=0,ub=S['shunt']['max'][1])
+            self.bsh = self.m.addVars(N,vtype=gb.GRB.BINARY)
+        else:
+            self.Qsh = np.zeros(N)
         self.Pf    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Pf")
         self.Pt    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Pt")
         self.Qf    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Qf")
         self.Qt    = self.m.addVars(L,lb=-fmax, ub=fmax, name="Qt")
+
+        # slacks
+        self.s     = self.m.addVars(L,lb=0, ub=0.5*fmax) # flow limit slack
+        self.sup   = self.m.addVars(N,lb=0, ub=0.5*umax) # voltage slack up
+        self.sun   = self.m.addVars(N,lb=0, ub=0.5*umax) # voltage slack down
 
         #NOTE: beta and gamma are on EXTERNAL/GLOBAL indexing!!!!
         self.beta   = self.m.addVars(ebound, lb=-fmax, ub=fmax, name='beta')
@@ -289,7 +346,11 @@ class ZoneMILP(object):
         ###############
         # Constraints
         ###############
-        self.m.addConstr( self.Pg.sum("*") + sum(self.beta[i] for _,j in ebound_map['in'].items() for i in j) - sum(self.beta[i] for _,j in ebound_map['out'].items() for i in j) >= self.m._pload*(1/(1-lossmin)) )
+        # voltage limits
+        self.m.addConstrs( self.u[i] >= umin - self.sun[i] for i in range(N))
+        self.m.addConstrs( self.u[i] <= umax + self.sup[i] for i in range(N))
+
+        self.m.addConstr( self.Pg.sum("*") + sum(self.beta[i] for _,j in ebound_map['in'].items() for i in j) - sum(self.beta[i] for _,j in ebound_map['out'].items() for i in j) >= self.m._pload*(1/(1-lossmin)) ) # minimum loss constraint
         for _n1,_n2,_l in G.edges_iter(data='id'):
             n1 = nmap[_n1]; n2 = nmap[_n2];  l = lmap[_l]
             self.m.addConstr( self.theta[n1] - self.theta[n2] <=  dmax)
@@ -297,14 +358,14 @@ class ZoneMILP(object):
 
             ##### flow limits #########
             if limitflag:
-                self.m.addConstr( sum( self.Z[l,i]*self.Pf[i] for i in range(L) ) <=  z['rate'][l] )
-                self.m.addConstr( sum( self.Z[l,i]*self.Pf[i] for i in range(L) ) >= -z['rate'][l] )
-                self.m.addConstr( sum( self.Z[l,i]*self.Pt[i] for i in range(L) ) <=  z['rate'][l] )
-                self.m.addConstr( sum( self.Z[l,i]*self.Pt[i] for i in range(L) ) >= -z['rate'][l] )
-                self.m.addConstr( sum( self.Z[l,i]*self.Qf[i] for i in range(L) ) <=  z['rate'][l] )
-                self.m.addConstr( sum( self.Z[l,i]*self.Qf[i] for i in range(L) ) >= -z['rate'][l] )
-                self.m.addConstr( sum( self.Z[l,i]*self.Qt[i] for i in range(L) ) <=  z['rate'][l] )
-                self.m.addConstr( sum( self.Z[l,i]*self.Qt[i] for i in range(L) ) >= -z['rate'][l] )
+                self.m.addConstr(-sum( self.Z[l,i]*z['rate'][i] for i in range(L) ) - self.s[l] <= self.Pf[l] )
+                self.m.addConstr( sum( self.Z[l,i]*z['rate'][i] for i in range(L) ) + self.s[l] >= self.Pf[l] )
+                self.m.addConstr(-sum( self.Z[l,i]*z['rate'][i] for i in range(L) ) - self.s[l] <= self.Pt[l] )
+                self.m.addConstr( sum( self.Z[l,i]*z['rate'][i] for i in range(L) ) + self.s[l] >= self.Pt[l] )
+                self.m.addConstr(-sum( self.Z[l,i]*z['rate'][i] for i in range(L) ) - self.s[l] <= self.Qf[l] )
+                self.m.addConstr( sum( self.Z[l,i]*z['rate'][i] for i in range(L) ) + self.s[l] >= self.Qf[l] )
+                self.m.addConstr(-sum( self.Z[l,i]*z['rate'][i] for i in range(L) ) - self.s[l] <= self.Qt[l] )
+                self.m.addConstr( sum( self.Z[l,i]*z['rate'][i] for i in range(L) ) + self.s[l] >= self.Qt[l] )
 
             for t in range(htheta+1):
                 self.m.addConstr(self.phi[l] >= -0.5*(t*d)**2 + (t*d)*(self.theta[n1] - self.theta[n2]))
@@ -329,14 +390,26 @@ class ZoneMILP(object):
         self.m.addConstrs( self.Qg[i] <=  sum( self.Pi[i,j]*S['Qgmax'][j] for j in range(N) )/100 for i in range(N))
         self.m.addConstrs( self.Qg[i] >= -sum( self.Pi[i,j]*S['Qgmax'][j] for j in range(N) )/100 for i in range(N))
        
-        self.m.addConstrs( self.Pg[i] - self.Pd[i] - sum( self.Pt[lmap[l['id']]] for _,_,l in G.in_edges_iter([rnmap[i]],data='id') ) - \
+        self.m.addConstrs( self.Pg[i] - self.Psh[i] - self.Pd[i] - sum( self.Pt[lmap[l['id']]] for _,_,l in G.in_edges_iter([rnmap[i]],data='id') ) - \
                 sum( self.Pf[lmap[l]] for _,_,l in G.out_edges_iter([rnmap[i]],data='id') ) + \
                 sum( self.beta[l] for l in ebound_map['in'].get(rnmap[i],[]) ) - \
                 sum( self.beta[l] for l in ebound_map['out'].get(rnmap[i],[]) ) == 0 for i in range(N))
-        self.m.addConstrs( self.Qg[i] - self.Qd[i] - sum( self.Qt[lmap[l['id']]] for _,_,l in G.in_edges_iter([rnmap[i]],data='id') ) - \
+        self.m.addConstrs( self.Qg[i] + self.Qsh[i] - self.Qd[i] - sum( self.Qt[lmap[l['id']]] for _,_,l in G.in_edges_iter([rnmap[i]],data='id') ) - \
                 sum( self.Qf[lmap[l]] for _,_,l in G.out_edges_iter([rnmap[i]],data='id') ) + \
                 sum( self.gamma[l] for l in ebound_map['in'].get(rnmap[i],[]) ) - \
                 sum( self.gamma[l] for l in ebound_map['out'].get(rnmap[i],[]) ) == 0 for i in range(N)) 
+
+        ###### shunts ##############
+        if Ngsh > 0:
+            self.m.addConstrs( self.Psh[i] >= self.gsh[i]*S['shunt']['min'][0] for i in range(N))
+            self.m.addConstrs( self.Psh[i] <= self.gsh[i]*S['shunt']['max'][0] for i in range(N))
+            self.m.addConstr(  self.gsh.sum('*') <= Ngsh )
+        if Nbsh > 0:
+            self.m.addConstrs( self.Qsh[i] >= self.bsh[i]*S['shunt']['min'][1] for i in range(N))
+            self.m.addConstrs( self.Qsh[i] <= self.bsh[i]*S['shunt']['max'][1] for i in range(N))
+            self.m.addConstr(  self.bsh.sum('*') <= Nbsh )
+            self.m.addConstrs( self.Qsh[i] - self.Qshp[i] <= 0 for i in range(N))
+            self.m.addConstrs( self.Qsh[i] + self.Qshn[i] >= 0 for i in range(N))
 
         self.m.addConstrs( self.Pi.sum(i,'*') == 1 for i in range(N))
         self.m.addConstrs( self.Pi.sum('*',i) == 1 for i in range(N))
@@ -350,8 +423,14 @@ class ZoneMILP(object):
         ###############
         # Objective
         ###############
-        def obj():
-            return self.Pg.sum('*') + self.phi.sum('*')
+        if Nbsh > 0:
+            def obj():
+                return self.Pg.sum('*') + self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") \
+                       + self.s.sum("*") + 100*(self.sup.sum("*") + self.sun.sum("*"))
+        else:
+            def obj():
+                return self.Pg.sum('*') + self.phi.sum('*') \
+                       + self.s.sum("*") + 100*(self.sup.sum("*") + self.sun.sum("*"))
         self.obj = obj
         self.m.setObjective(self.obj() + self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*"), gb.GRB.MINIMIZE)
 
@@ -398,13 +477,20 @@ class ZoneMILP(object):
         vars['Qf']    = hlp.var2mat(self.Qf, self.L)
         vars['Pt']    = hlp.var2mat(self.Pt, self.L)
         vars['Qt']    = hlp.var2mat(self.Qt, self.L)
+        vars['s']     = hlp.var2mat(self.s,  self.L)
+        vars['sup']   = hlp.var2mat(self.s,  self.N)
+        vars['sun']   = hlp.var2mat(self.s,  self.N)
         vars['r']     = hlp.var2mat(self.z['r'],    self.L, perm=self.Z)
         vars['x']     = hlp.var2mat(self.z['x'],    self.L, perm=self.Z)
         vars['b']     = hlp.var2mat(self.z['b'],    self.L, perm=self.Z)
-        vars['rate']  = hlp.var2mat(self.z['rate'], self.L, perm=self.Z)
+        vars['rate']  = hlp.var2mat(self.z['rate'], self.L, perm=self.Z) + vars['s']
         vars['tap']   = hlp.var2mat(self.z['tap'],  self.L, perm=self.Z)
         vars['shift'] = hlp.var2mat(self.z['shift'],self.L, perm=self.Z)
         vars['theta'] = hlp.var2mat(self.theta, self.N)
         vars['u']     = hlp.var2mat(self.u, self.N)
         vars['phi']   = hlp.var2mat(self.phi,self.L)
+        if self.Ngsh > 0:
+            vars['GS']= hlp.var2mat(self.Psh,self.N)
+        if self.Nbsh > 0:
+            vars['BS']= hlp.var2mat(self.Qsh,self.N)
         return vars 
