@@ -745,7 +745,7 @@ def bigM_calc(Y,fmax,umax,umin,dmax,margin=1.1):
     bigM['qt']  = margin*max(Mqt1,Mqt2)
     return bigM
 
-def def_consts():
+def def_consts(**kwargs):
     c    = {}
     c['fmax'] = 9            # default per unit maximum real power flow on line
     c['dmax'] = 40*np.pi/180 # angle difference limit over a branch
@@ -759,6 +759,12 @@ def def_consts():
                   'max_diff':  0.1,
                   'itermax':   5}
     c['rho'] = 1
+    c['generations'] = 5
+    c['individuals'] = 15
+    c['ea_select']   = 5
+    if kwargs is not None:
+        for k,v in kwargs.items():
+            c[k] = v
     return c
 
 def testing(*args):

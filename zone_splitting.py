@@ -156,7 +156,10 @@ if __name__=='__main__':
 #    zones,boundaries = get_zones(G,Nmax)
 #    eboundary,n2n = boundary_edges(G,zones)
 
-    bus_data,gen_data,branch_data = load_data('./cases/polish2383_wp')
+    import sys
+    casename = sys.argv[1]
+#   bus_data,gen_data,branch_data = load_data('./cases/polish2383_wp')
+    bus_data,gen_data,branch_data = load_data(casename)
     f_node = branch_data['F_BUS'].values
     t_node = branch_data['T_BUS'].values
     
@@ -167,5 +170,6 @@ if __name__=='__main__':
     Nmax = 400; Nmin = 50;
 #    zones,boundaries,_,_= pickle.load(open('../polish_debug/zone_dump.pkl','rb'))
     zones2,boundaries2,edge_maps = get_zones(G,Nmax,Nmin,debug=False)
-#    ipdb.set_trace()
+    import ipdb; ipdb.set_trace()
+    sys.exit(0)
     boundary_edges,n2n  = boundary_edges(G,zones)

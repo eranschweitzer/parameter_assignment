@@ -18,6 +18,39 @@ def topology(bus_data,branch_data):
             id += 1
     return G
 
+def zones(G,Nmax,Nmin):
+    import zone_splitting as zp
+
+    ############ Partition Into Zones #############
+    logging.info('Splitting graph into zones')
+    zones, boundaries, eboundary_map = zp.get_zones(G,Nmax,Nmin)
+    logging.info('%d zones created', len(zones))
+    ##### sort based on number of boundary edges #####
+    boundary_edge_num  = {i:len(eboundary_map[i][1]) for i in range(len(zones))}
+    boundary_edge_sort = sorted(boundary_edge_num,key=boundary_edge_num.get)
+    zones              = [zones[i]         for i in boundary_edge_sort]
+    boundaries         = [boundaries[i]    for i in boundary_edge_sort]
+    eboundary_map      = [eboundary_map[i] for i in boundary_edge_sort]
+    #### map from edge id to list of zones it is incident upon
+    e2z = ebound2zones([x[1] for x in eboundary_map])
+    return zones, boundaries, eboundary_map, e2z
+
+def zone_inputs(zones,boundaries,eboundary_map,resd,resg,resf,resz,log_samples):
+    """ initialize zone inputs WITHOUT creating the optimization model 
+        This is throught for a situation where Z is known during the optimization
+        Therefore bigM is not needed, and is taken out here.
+    """
+    inputs = {'S':[], 'z':[]}
+    for i,(H,boundary,ebound) in enumerate(zip(zones,boundaries,eboundary_map)):
+        logging.info('-------------------')
+        logging.info('Initializing Zone %d: %d nodes, %d edges, %d boundary edges', i, H.number_of_nodes(), H.number_of_edges(), len(ebound[1]))
+        logging.info('-------------------')
+        ### Sample Power and Impedance ####
+        inputs['S'].append(hlp.multivar_power_sample(H.number_of_nodes(),resd,resg,resf))
+        inputs['z'].append(hlp.multivar_z_sample(H.number_of_edges(), resz))
+        log_samples(inputs['S'][-1],inputs['z'][-1])
+    return inputs
+        
 def solvers_init(G,Nmax,Nmin,resd,resg,resf,resz,lossmin,lossterm,fmax,dmax,htheta,umin,umax,log_samples):
     import zone_splitting as zp
     import formulation_multvar as fm
