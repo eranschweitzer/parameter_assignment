@@ -711,7 +711,7 @@ def Yparts(r,x,b=None,tau=None,phi=None):
 
     return {'gff': gff, 'gft': gft, 'gtf':gtf, 'gtt':gtt, 'bff': bff, 'bft': bft, 'btf':btf, 'btt':btt}
     
-def bigM_calc(Y,fmax,umax,dmax,margin=1.1):
+def bigM_calc(Y,fmax,umax,umin,dmax,margin=1.1):
     #bigM = {}
     #bigM['pf']  = margin*(fmax + max(Y['gff'] + Y['gft'])*(1+umax) + max(np.abs(Y['bft']))*dmax - min(Y['gft'])*0.5*dmax**2)
     #bigM['qf']  = margin*(fmax + max(Y['bff'] + Y['bft'])*(1+umax) + max(np.abs(Y['gft']))*dmax - min(Y['bft'])*0.5*dmax**2)

@@ -206,7 +206,10 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     ###############
     # Objective
     ###############
-    obj = Pg.sum('*') + phi.sum('*') + Qshp.sum('*') + Qshn.sum('*')
+    if Nbsh > 0:
+        obj = Pg.sum('*') + phi.sum('*') + Qshp.sum('*') + Qshn.sum('*')
+    else:
+        obj = Pg.sum('*') + phi.sum('*')
 
     ###############
     # Solve

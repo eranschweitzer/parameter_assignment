@@ -102,7 +102,7 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Tr
 
         ### get primitive admittance values ####
         Y = hlp.Yparts(z['r'],z['x'],b=z['b'],tau=z['tap'],phi=z['shift'])
-        bigM = hlp.bigM_calc(Y,fmax,umax,dmax)
+        bigM = hlp.bigM_calc(Y,fmax,umax,umin,dmax)
         log_optimization_consts(lossmin,lossterm,fmax,dmax,htheta,umin,umax,bigM=bigM)
 
         ### solve ####

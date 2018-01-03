@@ -41,6 +41,12 @@ def tieassign(G, nvars, lvars, lossmin, lossterm, fmax, dmax, htheta, umin, umax
 
     N = G.number_of_nodes()
     L = G.number_of_edges()
+    ### shunt impedances numbers ###########
+    if S['shunt']['include_shunts']:
+        Ngsh = round(S['shunt']['Gfrac']*N)
+        Nbsh = round(S['shunt']['Bfrac']*N)
+    else:
+        Ngsh = 0; Nbsh = 0
     E = len(tset)
     bmap = dict(zip(tset,range(E)))
     rbmap = np.empty(E, dtype='int')
@@ -51,7 +57,8 @@ def tieassign(G, nvars, lvars, lossmin, lossterm, fmax, dmax, htheta, umin, umax
     # that should be ignored
     Yfixed = hlp.Yparts( lvars['r'], lvars['x'], b=lvars['b'], tau=lvars['tap'], shift=lvars['shift'] )
     Ytie   = hlp.Yparts( ztie['r'],  ztie['x'],  b=ztie['b'],  tau=ztie['tap'],  shift=ztie['shift'] )
-    bigM = hlp.bigM_calc(Ytie, max(ztie['rate']), umax, dmax)
+    limitflag = np.all(ztie['rate'] == ztie['rate'][0])
+    bigM = hlp.bigM_calc(Ytie, max(ztie['rate']), umax, umin, dmax)
 
     m = gb.Model()
 
@@ -80,6 +87,18 @@ def tieassign(G, nvars, lvars, lossmin, lossterm, fmax, dmax, htheta, umin, umax
 
     Pg    = m.addVars(N,lb=-gb.GRB.INFINITY, name="Pg")
     Qg    = m.addVars(N,lb=-gb.GRB.INFINITY, name="Qg")
+    if Ngsh > 0:
+        Psh = m.addVars(N,lb=S['shunt']['min'][0],ub=S['shunt']['max'][0])
+        gsh = m.addVars(N,vtype=gb.GRB.BINARY)
+    else:
+        Psh = np.zeros(N)
+    if Nbsh > 0:
+        Qsh = m.addVars(N,lb=S['shunt']['min'][1],ub=S['shunt']['max'][1])
+        Qshp= m.addVars(N,lb=0,ub=S['shunt']['max'][1])
+        Qshn= m.addVars(N,lb=0,ub=S['shunt']['max'][1])
+        bsh = m.addVars(N,vtype=gb.GRB.BINARY)
+    else:
+        Qsh = np.zeros(N)
 
     m._Pg   = Pg
     m._Pd   = sum(nvars['Pd'])
@@ -88,30 +107,42 @@ def tieassign(G, nvars, lvars, lossmin, lossterm, fmax, dmax, htheta, umin, umax
     ###############
     # Constraints
     ###############
-    m.addConstr( Pg.sum("*") >= m._Pd*(1+lossmin) )
+    m.addConstr( Pg.sum("*") >= m._Pd*(1/(1 - lossmin)) ) # minimum loss constraint
     for n1,n2,l in G.edges_iter(data='id'):
         m.addConstr( theta[n1] - theta[n2] <=  dmax)
         m.addConstr( theta[n1] - theta[n2] >= -dmax)
 
         ##### flow limits #########
         if l in tset:
-            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pf[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
-            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pf[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
-            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pt[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
-            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pt[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
-            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qf[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
-            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qf[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
-            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qt[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
-            self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qt[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
+            #self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pf[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
+            #self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pf[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
+            #self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pt[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
+            #self.m.addConstr( sum( self.Z[bmap[l],i]*self.Pt[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
+            #self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qf[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
+            #self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qf[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
+            #self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qt[rbmap[i]] for i in range(E) ) <=  ztie['rate'][l] )
+            #self.m.addConstr( sum( self.Z[bmap[l],i]*self.Qt[rbmap[i]] for i in range(E) ) >= -ztie['rate'][l] )
+            if limitflag:
+                m.addConstr(-sum( Z[bmap[l],i]*ztie['rate'][i] for i in range(E) ) <= Pf[l] )
+                m.addConstr( sum( Z[bmap[l],i]*ztie['rate'][i] for i in range(E) ) >= Pf[l] )
+                m.addConstr(-sum( Z[bmap[l],i]*ztie['rate'][i] for i in range(E) ) <= Pt[l] )
+                m.addConstr( sum( Z[bmap[l],i]*ztie['rate'][i] for i in range(E) ) >= Pt[l] )
+                m.addConstr(-sum( Z[bmap[l],i]*ztie['rate'][i] for i in range(E) ) <= Qf[l] )
+                m.addConstr( sum( Z[bmap[l],i]*ztie['rate'][i] for i in range(E) ) >= Qf[l] )
+                m.addConstr(-sum( Z[bmap[l],i]*ztie['rate'][i] for i in range(E) ) <= Qt[l] )
+                m.addConstr( sum( Z[bmap[l],i]*ztie['rate'][i] for i in range(E) ) >= Qt[l] )
+            else:
+                m.addConstr(Pf[l] >= -ztie['rate'][0])
+                m.addConstr(Pf[l] <=  ztie['rate'][0])
         else:
-            self.m.addConstr( Pf[l]  <=  lvars['rate'][l] )
-            self.m.addConstr( Pf[l]  >= -lvars['rate'][l] )
-            self.m.addConstr( Pt[l]  <=  lvars['rate'][l] )
-            self.m.addConstr( Pt[l]  >= -lvars['rate'][l] )
-            self.m.addConstr( Qf[l]  <=  lvars['rate'][l] )
-            self.m.addConstr( Qf[l]  >= -lvars['rate'][l] )
-            self.m.addConstr( Qt[l]  <=  lvars['rate'][l] )
-            self.m.addConstr( Qt[l]  >= -lvars['rate'][l] )
+            m.addConstr( Pf[l]  <=  lvars['rate'][l] )
+            m.addConstr( Pf[l]  >= -lvars['rate'][l] )
+            m.addConstr( Pt[l]  <=  lvars['rate'][l] )
+            m.addConstr( Pt[l]  >= -lvars['rate'][l] )
+            m.addConstr( Qf[l]  <=  lvars['rate'][l] )
+            m.addConstr( Qf[l]  >= -lvars['rate'][l] )
+            m.addConstr( Qt[l]  <=  lvars['rate'][l] )
+            m.addConstr( Qt[l]  >= -lvars['rate'][l] )
 
         for t in range(htheta+1):
             m.addConstr(phi[l] >= -0.5*(t*d)**2 + (t*d)*(theta[n1] - theta[n2]))
@@ -119,22 +150,35 @@ def tieassign(G, nvars, lvars, lossmin, lossterm, fmax, dmax, htheta, umin, umax
         if l in tset:
             for _l2 in tset:
                 l1 = bmap[l]; l2 = bmap[_l2]
-                m.addConstr(Pf[l] - Ytie['gff'][l2]*(1+u[n1]) - Ytie['gft'][l2]*(1-phi[l]+u[n2]) + Ytie['bft'][l2]*(theta[n2] - theta[n1]) + bigM*(1 - Z[l1,l2]) >= 0)
-                m.addConstr(Pf[l] - Ytie['gff'][l2]*(1+u[n1]) - Ytie['gft'][l2]*(1-phi[l]+u[n2]) + Ytie['bft'][l2]*(theta[n2] - theta[n1]) - bigM*(1 - Z[l1,l2]) <= 0)
-                m.addConstr(Qf[l] + Ytie['bff'][l2]*(1+u[n1]) + Ytie['bft'][l2]*(1+phi[l]+u[n2]) - Ytie['gft'][l2]*(theta[n2] - theta[n1]) + bigM*(1 - Z[l1,l2]) >= 0)
-                m.addConstr(Qf[l] + Ytie['bff'][l2]*(1+u[n1]) + Ytie['bft'][l2]*(1+phi[l]+u[n2]) - Ytie['gft'][l2]*(theta[n2] - theta[n1]) - bigM*(1 - Z[l1,l2]) <= 0)
+                m.addConstr(Pf[l] - Ytie['gff'][l2]*(1+u[n1]) - Ytie['gft'][l2]*(1-phi[l]+u[n2]) - Ytie['bft'][l2]*(theta[n1] - theta[n2]) + bigM*(1 - Z[l1,l2]) >= 0)
+                m.addConstr(Pf[l] - Ytie['gff'][l2]*(1+u[n1]) - Ytie['gft'][l2]*(1-phi[l]+u[n2]) - Ytie['bft'][l2]*(theta[n1] - theta[n2]) - bigM*(1 - Z[l1,l2]) <= 0)
+                m.addConstr(Qf[l] + Ytie['bff'][l2]*(1+u[n1]) + Ytie['bft'][l2]*(1+phi[l]+u[n2]) - Ytie['gft'][l2]*(theta[n1] - theta[n2]) + bigM*(1 - Z[l1,l2]) >= 0)
+                m.addConstr(Qf[l] + Ytie['bff'][l2]*(1+u[n1]) + Ytie['bft'][l2]*(1+phi[l]+u[n2]) - Ytie['gft'][l2]*(theta[n1] - theta[n2]) - bigM*(1 - Z[l1,l2]) <= 0)
                 m.addConstr(Pt[l] - Ytie['gtt'][l2]*(1+u[n2]) - Ytie['gtf'][l2]*(1-phi[l]+u[n1]) + Ytie['btf'][l2]*(theta[n1] - theta[n2]) + bigM*(1 - Z[l1,l2]) >= 0)
                 m.addConstr(Pt[l] - Ytie['gtt'][l2]*(1+u[n2]) - Ytie['gtf'][l2]*(1-phi[l]+u[n1]) + Ytie['btf'][l2]*(theta[n1] - theta[n2]) - bigM*(1 - Z[l1,l2]) <= 0)
-                m.addConstr(Qt[l] + Ytie['btt'][l2]*(1+u[n2]) + Ytie['btf'][l2]*(1+phi[l]+u[n1]) - Ytie['gtf'][l2]*(theta[n1] - theta[n2]) + bigM*(1 - Z[l1,l2]) >= 0)
-                m.addConstr(Qt[l] + Ytie['btt'][l2]*(1+u[n2]) + Ytie['btf'][l2]*(1+phi[l]+u[n1]) - Ytie['gtf'][l2]*(theta[n1] - theta[n2]) - bigM*(1 - Z[l1,l2]) <= 0)
+                m.addConstr(Qt[l] + Ytie['btt'][l2]*(1+u[n2]) + Ytie['btf'][l2]*(1+phi[l]+u[n1]) + Ytie['gtf'][l2]*(theta[n1] - theta[n2]) + bigM*(1 - Z[l1,l2]) >= 0)
+                m.addConstr(Qt[l] + Ytie['btt'][l2]*(1+u[n2]) + Ytie['btf'][l2]*(1+phi[l]+u[n1]) + Ytie['gtf'][l2]*(theta[n1] - theta[n2]) - bigM*(1 - Z[l1,l2]) <= 0)
         else:
-            m.addConstr(Pf[l] - Yfixed['gff'][l]*(1+u[n1]) - Yfixed['gft'][l]*(1-phi[l]+u[n2]) + Yfixed['bft'][l]*(theta[n2] - theta[n1]) == 0)
-            m.addConstr(Qf[l] + Yfixed['bff'][l]*(1+u[n1]) + Yfixed['bft'][l]*(1+phi[l]+u[n2]) - Yfixed['gft'][l]*(theta[n2] - theta[n1]) == 0)
+            m.addConstr(Pf[l] - Yfixed['gff'][l]*(1+u[n1]) - Yfixed['gft'][l]*(1-phi[l]+u[n2]) - Yfixed['bft'][l]*(theta[n1] - theta[n2]) == 0)
+            m.addConstr(Qf[l] + Yfixed['bff'][l]*(1+u[n1]) + Yfixed['bft'][l]*(1+phi[l]+u[n2]) - Yfixed['gft'][l]*(theta[n1] - theta[n2]) == 0)
             m.addConstr(Pt[l] - Yfixed['gtt'][l]*(1+u[n2]) - Yfixed['gtf'][l]*(1-phi[l]+u[n1]) + Yfixed['btf'][l]*(theta[n1] - theta[n2]) == 0)
-            m.addConstr(Qt[l] + Yfixed['btt'][l]*(1+u[n2]) + Yfixed['btf'][l]*(1+phi[l]+u[n1]) - Yfixed['gtf'][l]*(theta[n1] - theta[n2]) == 0)
+            m.addConstr(Qt[l] + Yfixed['btt'][l]*(1+u[n2]) + Yfixed['btf'][l]*(1+phi[l]+u[n1]) + Yfixed['gtf'][l]*(theta[n1] - theta[n2]) == 0)
 
-    m.addConstrs( Pg[i] - nvars['Pd'][i] - sum(Pt[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - sum(Pf[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0 for i in range(N)) 
-    m.addConstrs( Qg[i] - nvars['Qd'][i] - sum(Qt[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - sum(Qf[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0 for i in range(N)) 
+    ##### nodal balance #######
+    m.addConstrs( Pg[i] - Psh[i] - nvars['Pd'][i] - sum(Pt[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - sum(Pf[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0 for i in range(N)) 
+    m.addConstrs( Qg[i] + Qsh[i] - nvars['Qd'][i] - sum(Qt[l['id']] for _,_,l in G.in_edges_iter([i],data='id')) - sum(Qf[l] for _,_,l in G.out_edges_iter([i],data='id')) == 0 for i in range(N)) 
+
+    ###### shunts ##############
+    if Ngsh > 0:
+        m.addConstrs( Psh[i] >= gsh[i]*S['shunt']['min'][0] for i in range(N))
+        m.addConstrs( Psh[i] <= gsh[i]*S['shunt']['max'][0] for i in range(N))
+        m.addConstr(  gsh.sum('*') <= Ngsh )
+    if Nbsh > 0:
+        m.addConstrs( Qsh[i] >= bsh[i]*S['shunt']['min'][1] for i in range(N))
+        m.addConstrs( Qsh[i] <= bsh[i]*S['shunt']['max'][1] for i in range(N))
+        m.addConstr(  bsh.sum('*') <= Nbsh )
+        m.addConstrs( Qsh[i] - Qshp[i] <= 0 for i in range(N))
+        m.addConstrs( Qsh[i] + Qshn[i] >= 0 for i in range(N))
 
     m.addConstrs( Pg[i] >=  nvars['Pgmin'][i]/100 for i in range(N) )
     m.addConstrs( Pg[i] <=  nvars['Pgmax'][i]/100 for i in range(N) )
@@ -147,7 +191,10 @@ def tieassign(G, nvars, lvars, lossmin, lossterm, fmax, dmax, htheta, umin, umax
     ###############
     # Objective
     ###############
-    obj = Pg.sum("*") + phi.sum('*')
+    if Nbsh > 0:
+        obj = Pg.sum('*') + phi.sum('*') + Qshp.sum('*') + Qshn.sum('*')
+    else:
+        obj = Pg.sum('*') + phi.sum('*')
 
     ###############
     # Solve
@@ -171,5 +218,9 @@ def tieassign(G, nvars, lvars, lossmin, lossterm, fmax, dmax, htheta, umin, umax
     nvars['u']        = hlp.var2mat(u, N)
     nvars['Pg']       = hlp.var2mat(Pg,N)
     nvars['Qg']       = hlp.var2mat(Qg,N)
+    if Ngsh > 0:
+        nvars['GS']= hlp.var2mat(Psh,N)
+    if Nbsh > 0:
+        nvars['BS']= hlp.var2mat(Qsh,N)
     return {**nvars, **lvars}
 

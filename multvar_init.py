@@ -43,7 +43,7 @@ def solvers_init(G,Nmax,Nmin,resd,resg,resf,resz,lossmin,lossterm,fmax,dmax,hthe
         log_samples(S,z)
         ### get primitive admittance values ####
         Y = hlp.Yparts(z['r'],z['x'],b=z['b'],tau=z['tap'],phi=z['shift'])
-        bigM = hlp.bigM_calc(Y,fmax,umax,dmax)
+        bigM = hlp.bigM_calc(Y,fmax,umax,umin,dmax)
         #logging.info('big M: %0.4g', bigM)
         for k,v in bigM.items():
             logging.info('big M%s: %0.4g', k, v)
