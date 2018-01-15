@@ -1,14 +1,16 @@
 import numpy as np
 
-def solve(solvers,e2z,logging=None):
+def solve(solvers,e2z,logging=None,solck=False, print_boundary=False, **kwargs):
     beta_bar = {l:0 for l in e2z}
     gamma_bar= {l:0 for l in e2z}
     for i, s in enumerate(solvers):
         if logging is not None:
             logging(i,pre=True)
-        s.optimize()
+        s.optimize(**kwargs)
         if logging is not None:
-            logging(s)
+            logging(s,print_boundary=print_boundary)
+        if solck:
+            s.sol_check()
         #### update avg. values ####
         for l in s.beta:
             beta_bar[l] += s.beta[l].X/2
@@ -29,11 +31,12 @@ def solve(solvers,e2z,logging=None):
     max_diff  = {'beta': max(beta_diff.values()), 'gamma': max(gamma_diff.values())}
     return beta_bar, gamma_bar, {'gap':gap, 'mean_diff':mean_diff, 'max_diff':max_diff} 
 
-def update(solvers, iter, beta_bar, gamma_bar, rho):
+def update(solvers, iter, beta_bar, gamma_bar, rho, **kwargs):
     for s in solvers:
         if iter == 0:
-            s.remove_abs_vars()
             s.m._solmin = 1
+            if kwargs.get("remove_abs", True):
+                s.remove_abs_vars()
         s.objective_update(beta_bar, gamma_bar, rho)
 
 

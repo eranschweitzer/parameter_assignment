@@ -18,6 +18,10 @@ def var2mat(var,M,perm=None):
                 out[i] = var[j]
     return out
 
+def progress(i, T, res=0.1):
+    if np.floor((i-1)/T/res) != np.floor(i/T/res):
+        return np.floor(i/T/res)*res
+
 def model_status(m):
     status_codes = {1:'Loaded', 2:'Optimal',3:'Infeasible',4:'Inf_OR_UNBD',5:'Unbounded',6:'Cutoff',
             7:'Iteration_limit',8:'Node_limit',9:'Time_limit',10:'Solution_limit',
@@ -759,13 +763,36 @@ def def_consts(**kwargs):
                   'max_diff':  0.1,
                   'itermax':   5}
     c['rho'] = 1
-    c['generations'] = 5
-    c['individuals'] = 15
-    c['ea_select']   = 5
     if kwargs is not None:
         for k,v in kwargs.items():
             c[k] = v
     return c
+
+def update_consts(c,fin):
+    truelist = [True,'True','true','t','1']
+    for k, v in c.items():
+        if type(v) is dict:
+            update_consts(v,fin)
+        else:
+            if k in fin:
+                if type(v) is bool:
+                    c[k] = fin[k] in truelist
+                else:
+                    c[k] = type(v)(fin[k])
+
+def pick_ang0_node(G):
+    """ select a node that will be given angle 0 
+    This is done by selecting the most central node using betweeness centrality
+    """
+    v = nx.betweenness_centrality(nx.Graph(G)) 
+    return max(v, key=v.get)
+
+def edge_spread_from_v(G,v):
+    """ return the eccentricity of node v which is the maximum distance from v to all other nodes in G """
+    return nx.eccentricity(nx.Graph(G), v)
+
+def theta_max(G,v,dmax=np.pi/2, margin=2*np.pi):
+    return edge_spread_from_v(G,v)*dmax + margin
 
 def testing(*args):
     import fit_inputs as ftin 

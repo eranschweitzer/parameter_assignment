@@ -86,7 +86,7 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Tr
                 logging.info('===============================')
                 break
             else:
-                slv.update(solvers, iter, beta_bar, gamma_bar, rho)
+                slv.update(solvers, i, beta_bar, gamma_bar, rho)
                 i += 1
         nvars,lvars = out.getvars(solvers, N, L)
         ##### tie line branch samples #########

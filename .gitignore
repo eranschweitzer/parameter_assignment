@@ -1,4 +1,5 @@
 *.mat
+random_stuff/*
 from_syngrid/*
 cases/*
 logs/*

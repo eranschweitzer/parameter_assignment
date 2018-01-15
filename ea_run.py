@@ -1,28 +1,26 @@
-from datetime import datetime
 import time
-import pandas as pd
 import numpy as np
 import networkx as nx
 import random
 import logging
-import pprint
 import pickle
-from scipy import stats
 import helpers as hlp
 import multvar_init as mvinit
 import ea_init as init
 import logfun as lg
 
-def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=True, actual_vars_d=False, actual_vars_g=True, actual_vars_z=True):
+def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=False, actual_vars_d=False, actual_vars_g=True, actual_vars_z=True, debug=False, **kwargs):
 
+    fin = locals().copy()
+    del fin['savename']; del fin['fdata']; del fin['kwargs']
+    fin.update(**kwargs)
     start = time.time()
-    FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
-    logging.basicConfig(format=FORMAT,level=logging.INFO,datefmt='%H:%M:%S')
+    #FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
+    #logging.basicConfig(format=FORMAT,level=logging.INFO,datefmt='%H:%M:%S')
 
-    logging.info("Saving to: %s",savename)
-    logging.info("Topology data: %s", fdata)
-     
-    input_timestamp = lg.timestamp()
+    lg.log_function_inputs(savename,fdata,**fin) 
+    timestamps = {}
+    timestamps['start'] = lg.timestamp()
 
     #### INPUTS #########################
     truelist = [True,'True','true','t','1']
@@ -32,10 +30,23 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Tr
     actual_vars_g = actual_vars_g in truelist
     include_shunts= include_shunts in truelist
     const_rate    = const_rate in truelist
+    debug         = debug in truelist
 
     ##### Define Constants ###############
     C = hlp.def_consts() 
-
+    C['ea'] = {'generations': 5,
+               'individuals':10,
+               'ea_select':5,
+               'mutate_probability':0.05}
+    C['aug_relax'] = False
+    C['beta2_err'] = 0.1
+    C['solve_kwargs'] = {'remove_abs': True,
+                         'solck': False,
+                         'print_boundary': False,
+                         'write_model': False,
+                         'fname': 'debug/mymodel'}
+    hlp.update_consts(C,fin)
+    
     ##### Load Data ######### 
     bus_data, gen_data, branch_data = hlp.load_data(fdata)
     vmax = bus_data['VM'].max(); vmin = bus_data['VM'].min()
@@ -51,32 +62,68 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Tr
     G = mvinit.topology(bus_data,branch_data)
     N = G.number_of_nodes()
     L = G.number_of_edges()
-
-    logging.info('Number of buses: %d, Number of branches: %d, Nmax: %d, Nmin: %d',N,L,Nmax,Nmin)
+    lg.log_topology(N,L,Nmax,Nmin)
 
     ### Split Into Zones #####
     # if Nmax is sufficiently large there may be just 1 zone
     zones, boundaries, eboundary_map, e2z = mvinit.zones(G,Nmax,Nmin)
-    inputs = mvinit.zone_inputs(zones, boundaries, eboundary_map, resd, resg, resf, resz, lg.log_input_samples)
+    ssamples = mvinit.zone_inputs(zones, boundaries, eboundary_map, resd, resg, resf, resz, lg.log_input_samples, Sonly=True)
+    zsamples = hlp.multivar_z_sample(L, resz)
+    lg.log_input_samples(z=zsamples)
 
+    #### form inputs dictionary ####
+    inputs = {'globals': {'G':G, 'consts':C, 'z': zsamples, 'e2z':e2z}, 'locals':ssamples}
+    for i,(H,ebound) in enumerate(zip(zones,eboundary_map)):
+        inputs['locals'][i].update({'z':zsamples, 'G': H, 'ebound':ebound[1], 'ebound_map':ebound[0]})
+
+    lg.log_optimization_consts(C)
+    lgslv = {'log_iteration_start':lg.log_iteration_start, 
+             'log_iterations': lg.log_iterations, 
+             'log_iteration_summary':lg.log_iteration_summary,
+             'log_termination': lg.log_termination,
+             'log_single_system': lg.log_single_system}
     ### Main Loop ####################
-    Psi = [None,None]
-    for i in range(C['generations']):
-        Psi[1] = eamutate(Psi[0],C['indivduals'])
-        for psi in Psi[i]:
-            easolve(psi)
-        Psi[0] = easelection(Psi[0] + Psi[1])
+    import ea
+    Psi = [ea.EAgeneration(inputs), None]
+    for i in range(C['ea']['generations']):
+        lg.log_generation(i, Psi[0], start=True)
+        Psi[1] = Psi[0].mutate(C['ea']['individuals'], pm=C['ea']['mutate_probability'])
+        if debug:
+            debug_dump(savename, Psi, i, timestamps['start'])
+        Psi[1].initialize_optimization(logging=lg.log_optimization_init)
+        for ind, psi in enumerate(Psi[1].iter()):
+            lg.log_individual(ind)
+            psi.solve(Psi[1].inputs,logging=lgslv, **C['solve_kwargs'])
+        Psi[0] += Psi[1]
+        Psi[0].selection(C['ea']['ea_select'])
+        lg.log_generation(i, Psi[0], start=False)
 
-    ### Sample Power and Impedance ####
-    S = hlp.multivar_power_sample(N,resd,resg,resf)
-    z = hlp.multivar_z_sample(L,resz)
-    lg.log_input_samples(S,z)
+    #### saving
+    end = time.time()
+    timestamps['end'] = lg.timestamp()
+    Psi[0].save(savename, timestamps)
+    lg.log_total_run(start,end)
 
-    ### get primitive admittance values ####
-    Y = hlp.Yparts(z['r'],z['x'],b=z['b'],tau=z['tap'],phi=z['shift'])
-    bigM = hlp.bigM_calc(Y,C['fmax'],C['umax'],C['umax'],C['dmax'])
-    lg.log_optimization_consts(C['lossmin'],C['lossterm'],C['fmax'],C['dmax'],C['htheta'],C['umin'],C['umax'],bigM=bigM)
+def parse_inputs(fname):
+    out = {}
+    with open(fname,'r') as f:
+        for l in f:
+            parts = l.strip().replace(' ' ,'').split(':')
+            if len(parts) > 1:
+                out[parts[0]] = parts[1]
+    savename = out.pop('savename')
+    fdata    = out.pop('fdata')
+    return savename, fdata, out
+
+def debug_dump(savename, Psi, gen, tstamp):
+    if '/' in savename:
+        s = savename.split('/')[-1].split('.')[0]
+    else:
+        s = savename.split('.')[0]
+    pickle.dump(Psi[1], open('debug/' + s + '_gen_' + str(gen) + '_' + tstamp + '.pkl','wb'))
 
 if __name__ == '__main__':
     import sys
-    main(*sys.argv[1:])
+    savename, fdata, kwargs = parse_inputs(sys.argv[1])
+    #main(*sys.argv[1:])
+    main(savename, fdata, **kwargs)

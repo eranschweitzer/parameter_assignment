@@ -35,20 +35,24 @@ def zones(G,Nmax,Nmin):
     e2z = ebound2zones([x[1] for x in eboundary_map])
     return zones, boundaries, eboundary_map, e2z
 
-def zone_inputs(zones,boundaries,eboundary_map,resd,resg,resf,resz,log_samples):
+def zone_inputs(zones,boundaries,eboundary_map,resd,resg,resf,resz,log_samples,Sonly=False):
     """ initialize zone inputs WITHOUT creating the optimization model 
         This is throught for a situation where Z is known during the optimization
         Therefore bigM is not needed, and is taken out here.
     """
-    inputs = {'S':[], 'z':[]}
+    inputs = []
     for i,(H,boundary,ebound) in enumerate(zip(zones,boundaries,eboundary_map)):
         logging.info('-------------------')
         logging.info('Initializing Zone %d: %d nodes, %d edges, %d boundary edges', i, H.number_of_nodes(), H.number_of_edges(), len(ebound[1]))
         logging.info('-------------------')
         ### Sample Power and Impedance ####
-        inputs['S'].append(hlp.multivar_power_sample(H.number_of_nodes(),resd,resg,resf))
-        inputs['z'].append(hlp.multivar_z_sample(H.number_of_edges(), resz))
-        log_samples(inputs['S'][-1],inputs['z'][-1])
+        inputs.append({})
+        inputs[i]['S'] = hlp.multivar_power_sample(H.number_of_nodes(),resd,resg,resf)
+        if not Sonly:
+            inputs[i]['z'] = hlp.multivar_z_sample(H.number_of_edges(), resz)
+            log_samples(S=inputs[i]['S'],z=inputs[i]['z'])
+        else:
+            log_samples(S=inputs[i]['S'])
     return inputs
         
 def solvers_init(G,Nmax,Nmin,resd,resg,resf,resz,lossmin,lossterm,fmax,dmax,htheta,umin,umax,log_samples):
