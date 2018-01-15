@@ -2,15 +2,25 @@ import numpy as np
 import pickle
 from scipy import io
 
-def savempc(dataname,savename):
+def savempc(dataname, savename, expand_rate=False, vlim_precision=2):
 
-    data = pickle.load(open(dataname,'rb'))
+    if type(dataname) is str:
+        data = pickle.load(open(dataname,'rb'))
+    else:
+        data = dataname
+    
+    if 'vars' in data:
+        for i, vars in enumerate(data['vars']):
+            savempc({'G': data['G'], **vars}, update_savename(savename, i), expand_rate=expand_rate, vlim_precision=vlim_precision)
+        import sys
+        sys.exit(0)
 
     N = data['G'].number_of_nodes()
     L = data['G'].number_of_edges()
-    vmax = np.exp(np.max(data['u']))
-    vmin = np.exp(np.min(data['u']))
     
+    ###### Slacks #########
+    sf = try_extract(data,'sf',L)
+
     ################
     # Branch Matrix
     ################
@@ -22,7 +32,8 @@ def savempc(dataname,savename):
         branch[l,2] = data['r'][l]               # resistance (p.u.)
         branch[l,3] = data['x'][l]               # reactance (p.u.)
         branch[l,4] = data['b'][l]               # changing susceptance
-        branch[l,5] = data['rate'][l]*100        # Rate A
+        #branch[l,5] = data['rate'][l]*100        # Rate A
+        branch[l,5] = set_rate(data['rate'][l], sf[l], expand_rate) # Rate A
         branch[l,6] = 0                          # Rate B
         branch[l,7] = 0                          # Rate C
         branch[l,8] = data['tap'][l]             # off nominal tap
@@ -60,9 +71,11 @@ def savempc(dataname,savename):
     # BUS TYPES
     ############
     # pick ref bus as largest capacity generator that is also on
-    ref     = gen[np.argmax(gen[:,7]*gen[:,8]),0] - 1
+    ref     = int(gen[np.argmax(gen[:,7]*gen[:,8]),0] - 1)
+    refang  = data['theta'][ref] # angle of ref bus
     pvbuses = gen[gen[:,7] > 0, 0] - 1
 
+    vmax, vmin = vlim(data['u'], precision=vlim_precision)
     #############
     # Bus Matrix
     ############
@@ -79,15 +92,15 @@ def savempc(dataname,savename):
         bus[i,3] = 100*data['Qd'][i]       # reactive power
         try:
             bus[i,4] = 100*data['GS'][i]
-        except KeyError:
+        except (KeyError, TypeError):
             bus[i,4] = 0                       # shunt conductance
         try:
             bus[i,5] = 100*data['BS'][i]
-        except KeyError:
+        except (KeyError, TypeError):
             bus[i,5] = 0                       # shunt susceptance
         bus[i,6] = 1                       # bus area
         bus[i,7] = np.exp(data['u'][i])    # voltage magnitude
-        bus[i,8] = data['theta'][i]*180/np.pi # bus angle
+        bus[i,8] = (data['theta'][i] - refang)*180/np.pi # bus angle (shifted so ref is at 0)
         bus[i,9] = 220                     # base kV
         bus[i,10]= 1                       # Zone
         bus[i,11]= vmax                    # maximum voltage magnitude (p.u.)
@@ -104,8 +117,39 @@ def savempc(dataname,savename):
 
     io.savemat(savename,{'baseMVA':float(100),'bus':bus,'branch':branch,'gen':gen,'gencost':gencost})
 
+def set_rate(rate, slack, expand_rate):
+    if expand_rate:
+        return np.ceil((rate + slack)*100)
+    else:
+        return np.ceil(rate*100)
+
+def vlim(u, precision=2):
+    vmax = np.exp(np.max(u))
+    vmin = np.exp(np.min(u))
+    return np.ceil(round(vmax*(10**(precision+2)))/10**2)/(10**precision), np.floor(round(vmin*(10**(precision+2)))/10**2)/(10**precision)
+
+def update_savename(savename, i):
+    saveparts = savename.split('.')
+    return saveparts[0] + '_ind%d' %(i) + '.' +  saveparts[1]
+
+def try_extract(d, key, N):
+    """ try to extract key from dictionary d. If it fails return zeros array of length N """
+    try:
+        return d[key]
+    except KeyError:
+        return np.zeros(N)
+
 if __name__ == '__main__':
     import sys
     dataname = sys.argv[1]
     savename = sys.argv[2]
-    savempc(dataname,savename)
+    kwargs = {}
+    try:
+        kwargs['expand_rate'] = sys.argv[3] in ['True', 'true', 't', '1']
+    except IndexError:
+        pass
+    try:
+        kwargs['vlim_precision'] = int(sys.argv[4])
+    except IndexError:
+        pass
+    savempc(dataname,savename, **kwargs)
