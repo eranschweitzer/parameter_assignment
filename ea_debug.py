@@ -22,12 +22,13 @@ def main(fname):
     Psi[1].inputs['globals']['consts']['rho']=100
     Psi[1].inputs['globals']['consts']['aug_relax'] = True
     Psi[1].inputs['globals']['consts']['hbeta'] = 25
-    Psi[1].inputs['globals']['consts']['beta2_err'] = 0.1
+    Psi[1].inputs['globals']['consts']['beta2_err'] = 0.01
+    Psi[1].inputs['globals']['consts']['htheta'] = hlp.polyhedral_h(Psi[1].inputs['globals']['consts']['dmax'], 1e-3)
     Psi[0] = ea.EAgeneration(Psi[1].inputs)
     Psi[1].initialize_optimization()
     for ind, psi in enumerate(Psi[1].iter()):
         lg.log_individual(ind)
-        psi.solve(Psi[1].inputs,logging=lgslv, solck=True, print_boundary=False, write_model=False, fname='debug/polish2383wp')
+        psi.solve(Psi[1].inputs,logging=lgslv, solck=True, print_boundary=False, write_model=False, fname='debug/polish2383wp', rho_update='sqrt')
     
 
 if __name__=="__main__":

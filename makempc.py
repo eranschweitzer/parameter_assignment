@@ -2,7 +2,7 @@ import numpy as np
 import pickle
 from scipy import io
 
-def savempc(dataname, savename, expand_rate=False, vlim_precision=2):
+def savempc(dataname, savename, expand_rate=False, vlim_precision=2, **kwargs):
 
     if type(dataname) is str:
         data = pickle.load(open(dataname,'rb'))

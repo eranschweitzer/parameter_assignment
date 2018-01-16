@@ -4,6 +4,7 @@ import gurobipy as gb
 import formulation_ea as fm
 import multvar_solve as slv
 import multvar_solution_check as chk
+import makempc as mmpc
 
 def mutate(Psi0,K,pm=0.05):
     Psi = EAgeneration(Psi0.inputs)
@@ -76,7 +77,8 @@ class EAindividual(object):
             i = 0
             while True:
                 if logging is not None:
-                    logging['log_iteration_start'](i,inputs['globals']['consts']['rho'])
+                    method = kwargs.get("rho_update", 'None')
+                    logging['log_iteration_start'](i, slv.rho_modify(inputs['globals']['consts']['rho'],i, method) )
                 beta_bar, gamma_bar, ivals = slv.solve(self.zones, inputs['globals']['e2z'],logging=log_iterations,**kwargs)
                 if logging is not None:
                     logging['log_iteration_summary'](beta_bar,gamma_bar, ivals)
@@ -257,10 +259,17 @@ class EAgeneration(object):
 
         self.wmax = self.Psi[-1].w
 
-    def save(self, filename, timestamps):
+    def save(self, filename, timestamps, ftype='pkl', **kwargs):
         saveparts = filename.split('.') 
+        base_str = saveparts[0] + timestamps['end'] + "inputstamp_" + timestamps['start'] + "."
+
         _tmp = {'G': self.inputs['globals']['G'], 'vars':[] }
         for psi in self.iter():
             _tmp['vars'].append(psi.vars)
-        pickle.dump(_tmp,\
-                open(saveparts[0] + timestamps['end'] + "inputstamp_" + timestamps['start'] + "." + saveparts[1],'wb'))
+
+        if ftype == 'pkl':
+            pickle.dump(_tmp, open( base_str + "pkl", 'wb') )
+        elif ftype == 'mpc':
+            mmpc.savempc(_tmp, base_str + "mat", **kwargs)
+            
+

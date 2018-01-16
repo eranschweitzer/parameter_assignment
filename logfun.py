@@ -2,7 +2,7 @@ from datetime import datetime
 import time
 import logging
 import numpy as np
-from helpers import model_status 
+from helpers import model_status, progress 
 
 FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
 logging.basicConfig(format=FORMAT,level=logging.DEBUG,datefmt='%H:%M:%S')
@@ -38,38 +38,38 @@ def log_power_samples(S):
     logging.info('------ Power Info -------')
     logging.info('Load:')
     try:
-        logging.info('Actual Samples: %s', S['actual_vars_d'])
+        logging.info('\tActual Samples: %s', S['actual_vars_d'])
     except KeyError:
-        logging.info('Actual Samples: N/A')
-    logging.info('Total: %0.4f MW, %0.4f MVar', sum(S['Pd']), sum(S['Qd']))
-    logging.info('max: %0.4f MW, %0.4f MVar', max(S['Pd']), max(S['Qd']))
-    logging.info('min (non 0): %0.4f MW, %0.4f MVar', min(S['Pd'][S['Pd'] != 0]), min(S['Qd'][S['Qd'] != 0]))
-    logging.info('Avg: %0.4f WM, %0.4f MVar', np.mean(S['Pd']), np.mean(S['Qd']))
-    logging.info('Std: %0.4f WM, %0.4f MVar', np.std(S['Pd']),  np.std(S['Qd']))
+        logging.info('\tActual Samples: N/A')
+    logging.info('\tTotal: %0.4f MW, %0.4f MVar', sum(S['Pd']), sum(S['Qd']))
+    logging.info('\tmax: %0.4f MW, %0.4f MVar', max(S['Pd']), max(S['Qd']))
+    logging.info('\tmin (non 0): %0.4f MW, %0.4f MVar', min(S['Pd'][S['Pd'] != 0]), min(S['Qd'][S['Qd'] != 0]))
+    logging.info('\tAvg: %0.4f WM, %0.4f MVar', np.mean(S['Pd']), np.mean(S['Qd']))
+    logging.info('\tStd: %0.4f WM, %0.4f MVar', np.std(S['Pd']),  np.std(S['Qd']))
     logging.info('Gen Max:')
     try:
-        logging.info('Actual Samples: %s', S['actual_vars_g'])
+        logging.info('\tActual Samples: %s', S['actual_vars_g'])
     except KeyError:
-        logging.info('Actual Samples: N/A')
-    logging.info('Total: %0.4f MW, %0.4f MVar', sum(S['Pgmax']), sum(S['Qgmax']))
-    logging.info('max: %0.4f MW, %0.4f MVar', max(S['Pgmax']), max(S['Qgmax']))
-    logging.info('min (non 0): %0.4f MW, %0.4f MVar', min(S['Pgmax'][S['Pgmax'] != 0]), min(S['Qgmax'][S['Qgmax'] != 0]))
-    logging.info('Avg (non 0): %0.4f WM, %0.4f MVar', np.mean(S['Pgmax'][S['Pgmax'] != 0]), np.mean(S['Qgmax'][S['Qgmax'] != 0]))
-    logging.info('Std (non 0): %0.4f WM, %0.4f MVar', np.std(S['Pgmax'][S['Pgmax'] != 0]),  np.std(S['Qgmax'][S['Qgmax'] != 0]))
+        logging.info('\tActual Samples: N/A')
+    logging.info('\tTotal: %0.4f MW, %0.4f MVar', sum(S['Pgmax']), sum(S['Qgmax']))
+    logging.info('\tmax: %0.4f MW, %0.4f MVar', max(S['Pgmax']), max(S['Qgmax']))
+    logging.info('\tmin (non 0): %0.4f MW, %0.4f MVar', min(S['Pgmax'][S['Pgmax'] != 0]), min(S['Qgmax'][S['Qgmax'] != 0]))
+    logging.info('\tAvg (non 0): %0.4f WM, %0.4f MVar', np.mean(S['Pgmax'][S['Pgmax'] != 0]), np.mean(S['Qgmax'][S['Qgmax'] != 0]))
+    logging.info('\tStd (non 0): %0.4f WM, %0.4f MVar', np.std(S['Pgmax'][S['Pgmax'] != 0]),  np.std(S['Qgmax'][S['Qgmax'] != 0]))
     logging.info('Gen Min:')
-    logging.info('Total: %0.4f MW', sum(S['Pgmin']))
-    logging.info('max: %0.4f MW', max(S['Pgmin']))
+    logging.info('\tTotal: %0.4f MW', sum(S['Pgmin']))
+    logging.info('\tmax: %0.4f MW', max(S['Pgmin']))
     if np.any(S['Pgmin'] != 0):
-        logging.info('min (non 0): %0.4f MW', min(S['Pgmin'][S['Pgmin'] != 0]))
-        logging.info('Avg (non 0): %0.4f WM', np.mean(S['Pgmin'][S['Pgmin'] != 0]))
-        logging.info('Std (non 0): %0.4f WM', np.std(S['Pgmin'][S['Pgmin'] != 0]))
+        logging.info('\tmin (non 0): %0.4f MW', min(S['Pgmin'][S['Pgmin'] != 0]))
+        logging.info('\tAvg (non 0): %0.4f WM', np.mean(S['Pgmin'][S['Pgmin'] != 0]))
+        logging.info('\tStd (non 0): %0.4f WM', np.std(S['Pgmin'][S['Pgmin'] != 0]))
     logging.info('Shunt:')
     if S['shunt']['include_shunts']:
-        logging.info('fraction  (g,b): %0.4f, %0.4f', S['shunt']['Gfrac'], S['shunt']['Bfrac'])
-        logging.info('max [p.u] (g,b): %0.4f, %0.4f', S['shunt']['max'][0], S['shunt']['max'][1])
-        logging.info('min [p.u] (g,b): %0.4f, %0.4f', S['shunt']['min'][0], S['shunt']['min'][1])
+        logging.info('\tfraction  (g,b): %0.4f, %0.4f', S['shunt']['Gfrac'], S['shunt']['Bfrac'])
+        logging.info('\tmax [p.u] (g,b): %0.4f, %0.4f', S['shunt']['max'][0], S['shunt']['max'][1])
+        logging.info('\tmin [p.u] (g,b): %0.4f, %0.4f', S['shunt']['min'][0], S['shunt']['min'][1])
     else:
-        logging.info('Shunts disabled')
+        logging.info('\tShunts disabled')
 
 def log_branch_samples(z):
     logging.info('------Impedance Info----------')
@@ -98,12 +98,12 @@ def log_optimization_consts(C, bigM=None):
     logging.info('-----Optimization Constants------')
     logging.info('Flow Max (P or Q)    [p.u]: %0.2f',C['fmax'])
     logging.info('Angle Difference Max [rad (deg)]: %0.4f (%0.2f)',C['dmax'], C['dmax']*180/np.pi)
-    logging.info('htheta: %d',C['htheta'])
+    logging.info('htheta (#, err): %d, %0.2g%%',C['htheta'], C['phi_err']*100)
     logging.info('u min (v min): %0.4f (%0.4f)', C['umin'], np.exp(C['umin']))
     logging.info('u max (v max): %0.4f (%0.4f)', C['umax'], np.exp(C['umax']))
     logging.info('minimum losses: %d%%, terminating losses: %d%%', 100*C['lossmin'], 100*C['lossterm'])
     if 'aug_relax' in C:
-        logging.info('Using Polyheral relaxation of augmented Lagrangial. Max Error set to %0.2g%%', C['beta2_err']*100)
+        logging.info('Using Polyheral relaxation of augmented Lagrangian. Max Error set to %0.2g%%', C['beta2_err']*100)
     if bigM is not None:
         #logging.info('big M: %0.4g', bigM)
         for k,v in bigM.items():
@@ -137,10 +137,19 @@ def log_iterations(s,pre=False,print_boundary=False):
         Pg       = sum(s.Pg[i].X for i in s.Pg )
         Qg       = sum(s.Qg[i].X for i in s.Qg )
         Qd       = sum(s.Qd[i].X for i in s.Qd )
-        Losses = (Pg - s.m._pload + in_sum - out_sum)/(Pg + in_sum - out_sum)
+        Losses   = (Pg - s.m._pload + in_sum - out_sum)/(Pg + in_sum - out_sum)
+        phi_err  = s.phi_error()
+        try:
+            auglag_err = s.auglag_error()
+        except:
+            auglag_err = None
         logging.info("Solved with status %s (%d), objective=%0.3f", model_status(s.m), s.m.status, s.m.objVal)
-        logging.info("generation: %0.3g MW, load: %0.3g MW, import: %0.3g MW, export: %0.3g MW", Pg*100, s.m._pload*100, in_sum*100, out_sum*100)
-        logging.info("generation: %0.3g MVAr, load: %0.3g MVar, import: %0.3g MVAr, export: %0.3g MVAr", Qg*100, Qd*100, in_sum2*100, out_sum2*100)
+        logging.info("\tgeneration: %0.3g MW, load: %0.3g MW, import: %0.3g MW, export: %0.3g MW", Pg*100, s.m._pload*100, in_sum*100, out_sum*100)
+        logging.info("\tgeneration: %0.3g MVAr, load: %0.3g MVar, import: %0.3g MVAr, export: %0.3g MVAr", Qg*100, Qd*100, in_sum2*100, out_sum2*100)
+        logging.info("\tphi error (max, min): %0.3g, %0.3g", max(phi_err), min(phi_err))
+        if auglag_err is not None:
+            logging.info("\tAug. Lagrangian polyhedral relaxation error (beta, gamma) max/min: %0.3g/%0.3g, %0.3g/%0.3g", \
+                    max(auglag_err['beta'].values()), min(auglag_err['beta'].values()), max(auglag_err['gamma'].values()), min(auglag_err['gamma'].values()) )
         if print_boundary:
             logging.info("Boundary flows (id: beta, gamma):")
             beta = {i:s.beta[i].X for i in s.beta}
@@ -156,7 +165,7 @@ def log_iterations(s,pre=False,print_boundary=False):
                 logging.info("%s", txt)
 
 def log_optimization_init(i, T, res=0.1):
-    v = hlp.progress(i,T, res=res)
+    v = progress(i,T, res=res)
     if v is not None:
         logging.info('%0.1f%% Models initialized', v*100)
 

@@ -29,6 +29,7 @@ def rescheck(data, G=None, maps=None, ebound_map=None):
         delta[l] = data['theta'][n1] - data['theta'][n2]
 
     phierr = 0.5*delta**2 - data['phi']
+    phierr_idx = np.argmax(np.abs(phierr))
 
     Pfn = np.zeros(N)
     Qfn = np.zeros(N)
@@ -108,7 +109,7 @@ def rescheck(data, G=None, maps=None, ebound_map=None):
     logging.info('Maximum |P balance|: %0.3g' , max(np.abs(balance['P'])))
     logging.info('Maximum |Q balance|: %0.3g' , max(np.abs(balance['Q'])))
     logging.info('Maximum angle difference: %0.2f deg' ,max(np.abs(delta))*180/np.pi)
-    logging.info('Maximum differentce between phi and delta^2/2: %0.3g' ,max(np.abs(phierr)))
+    logging.info('Maximum differentce between phi and delta^2/2 (diff, delta, phi): %0.3g, %0.3g, %0.3g' ,max(np.abs(phierr)), delta[phierr_idx], data['phi'][phierr_idx])
     logging.info('Maximum v: %0.3f, Minimum v: %0.3f' , max(np.exp(data['u'])), min(np.exp(data['u'])))
     logging.info('Pmax violations: %d, Pmin violations: %d' ,sum(Plim['max']), sum(Plim['min']))
     logging.info('Qmax violations: %d, Qmin violations: %d' ,sum(Qlim['max']), sum(Qlim['min']))

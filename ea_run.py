@@ -39,13 +39,17 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Fa
                'ea_select':5,
                'mutate_probability':0.05}
     C['aug_relax'] = False
-    C['beta2_err'] = 0.1
+    C['beta2_err'] = 0.01
     C['solve_kwargs'] = {'remove_abs': True,
                          'solck': False,
                          'print_boundary': False,
                          'write_model': False,
-                         'fname': 'debug/mymodel'}
+                         'fname': 'debug/mymodel',
+                         'rho_update': 'sqrt'}
+    C['savempc'] = {'savempc': True, 'mpcpath': 'mpc/', 'expand_rate': True, 'vlim_precision': 2}
     hlp.update_consts(C,fin)
+
+    C['htheta'] = hlp.polyhedral_h(C['dmax'], C['phi_err'])
     
     ##### Load Data ######### 
     bus_data, gen_data, branch_data = hlp.load_data(fdata)
@@ -103,6 +107,9 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Fa
     timestamps['end'] = lg.timestamp()
     Psi[0].save(savename, timestamps)
     lg.log_total_run(start,end)
+    if C['savempc']['savempc']:
+        mpcsv = hlp.savepath_replace(savename, C['savempc']['mpcpath'])
+        Psi[0].save(mpcsv, timestamps, ftype='mpc', **C['savempc'])
 
 def parse_inputs(fname):
     out = {}

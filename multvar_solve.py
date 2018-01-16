@@ -37,8 +37,18 @@ def update(solvers, iter, beta_bar, gamma_bar, rho, **kwargs):
             s.m._solmin = 1
             if kwargs.get("remove_abs", True):
                 s.remove_abs_vars()
-        s.objective_update(beta_bar, gamma_bar, rho)
+        method = kwargs.get("rho_update", 'None')
+        s.objective_update(beta_bar, gamma_bar, rho_modify(rho, iter, method) )
 
+
+def rho_modify(rho, iter, method):
+    if method == "None":
+        return rho
+    elif method == 'sqrt':
+        if iter > 0:
+            return rho/np.sqrt(iter)
+        else:
+            return rho
 
 def termination(iter,vals,thresholds):
     msg = []

@@ -14,7 +14,13 @@ def mycallback2(model,where):
         Pg       = sum(model.cbGetSolution(model._Pg.values()))
         criteria = (Pg - model._pload + in_sum - out_sum)/(Pg + in_sum - out_sum)
         solcnt   = model.cbGet(gb.GRB.Callback.MIPSOL_SOLCNT) + 1
-        logging.info('Current solution: solcnt: %d, solmin: %d, sum(beta_in)=%0.2f, sum(beta_out)=%0.2f, sum(Pg)=%0.2f, sum(load)=%0.2f, criteria=%0.3g',solcnt,model._solmin,in_sum, out_sum, Pg, model._pload, criteria)
+        phiconst = 0
+        for _n1,_n2,_l in model._G.edges_iter(data='id'):
+            n1 = model._nmap[_n1]; n2 = model._nmap[_n2];  l = model._lmap[_l];
+            if 0.5*(model.cbGetSolution(model._theta[n1]) - model.cbGetSolution(model._theta[n2]))**2 - model.cbGetSolution(model._phi[l]) < -1e-5:
+                #model._tmpconst.append(model.addConstr(model._phi[l] <= 0.5*(model.cbGetSolution(model._theta[n1]) - model.cbGetSolution(model._theta[n2]))**2))
+                phiconst += 1
+        logging.info('Current solution: solcnt: %d, solmin: %d, sum(beta_in)=%0.2f, sum(beta_out)=%0.2f, sum(Pg)=%0.2f, sum(load)=%0.2f, criteria=%0.3g, phiconst=%d',solcnt,model._solmin,in_sum, out_sum, Pg, model._pload, criteria, phiconst)
         if (solcnt > model._solmin) and (criteria < model._lossterm):
             logging.info('      terminating in MISOL due to minimal losses')
             model.terminate()
@@ -157,7 +163,13 @@ class ZoneMILP(object):
         self.m._solmin = 0
         self.m._ebound_map = ebound_map
         self.m._lossterm = consts['lossterm']
-        d = consts['dmax']/consts['htheta']
+        self.m._G = G
+        self.m._phi = self.phi
+        self.m._theta = self.theta
+        self.m._nmap  = nmap
+        self.m._lmap  = lmap
+        self.m._tmpconst = []
+        dphi = 2*consts['dmax']/consts['htheta']
         self.w  = {l: 0 for l in ebound}
         self.nu = {l: 0 for l in ebound}
 
@@ -202,9 +214,10 @@ class ZoneMILP(object):
             self.m.addConstr( self.Qt[l]  >= -params['z']['rate'][zl] - self.sf[l])
             self.m.addConstr( self.Qt[l]  <= +params['z']['rate'][zl] + self.sf[l])
             
-            for t in range(consts['htheta']+1):
-                self.m.addConstr(self.phi[l] >= -0.5*(t*d)**2 + (t*d)*(self.theta[n1] - self.theta[n2]))
-                self.m.addConstr(self.phi[l] >= -0.5*(t*d)**2 + (t*d)*(self.theta[n2] - self.theta[n1]))
+            for t in range(int(consts['htheta']) + 1):
+                self.m.addConstr(self.phi[l] >= -0.5*(-consts['dmax'] + t*dphi)**2 + (-consts['dmax'] + t*dphi)*(self.theta[n1] - self.theta[n2]))
+                #self.m.addConstr(self.phi[l] >= -0.5*(t*d)**2 + (t*d)*(self.theta[n1] - self.theta[n2]))
+                #self.m.addConstr(self.phi[l] >= -0.5*(t*d)**2 + (t*d)*(self.theta[n2] - self.theta[n1]))
 
             #### branch flows ####
             self.m.addConstr( self.Pf[l] - Y['gff'][zl]*(1+self.u[n1]) - Y['gft'][zl]*(1-self.phi[l]+self.u[n2]) - Y['bft'][zl]*(self.theta[n1] - self.theta[n2]) == 0)
@@ -266,15 +279,23 @@ class ZoneMILP(object):
         # Objective
         ###############
         if Nbsh > 0:
-            def obj():
-                return self.Pg.sum('*') + self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") \
-                        + 10*self.sf.sum("*") + 100*(self.su.sum("*") + self.sd.sum("*")) \
-                        + 2*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")) 
+            def obj(scale=1):
+                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
+                for k,v in w.items():
+                    w[k] = max(v*scale,v)
+                w['phi'] = max(w.values())
+                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") \
+                        + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") \
+                        + w['beta']*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")) 
         else:
-            def obj():
-                return self.Pg.sum('*') + self.phi.sum('*') \
-                        + 10*self.sf.sum("*") + 100*(self.su.sum("*") + self.sd.sum("*")) \
-                        + 2*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*"))
+            def obj(scale=1):
+                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
+                for k,v in w.items():
+                    w[k] = max(v*scale,v)
+                w['phi'] = max(w.values())
+                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') \
+                        + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") \
+                        + w['beta']*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")) 
         self.obj = obj
         #self.m.setObjective(self.obj() + 2*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")), gb.GRB.MINIMIZE)
         self.m.setObjective(self.obj(), gb.GRB.MINIMIZE)
@@ -289,7 +310,7 @@ class ZoneMILP(object):
                 self.const_update(beta_bar, gamma_bar)
             except AttributeError:
                 self.auglag_relax(beta_bar, gamma_bar)
-
+        
         obj = self.obj()
     
         for i in self.ebound:
@@ -316,7 +337,8 @@ class ZoneMILP(object):
         for l in self.ebound:
             zl = self.zperm[l]
             delta_max = 2*self.z['rate'][zl] # maximum beta/gamma error
-            hbeta = np.round(delta_max**2/self.consts['beta2_err'])
+            #hbeta = np.round(delta_max**2/self.consts['beta2_err'])
+            hbeta = hlp.polyhedral_h(delta_max, self.consts['beta2_err'] )
             d = 2*delta_max/hbeta
 
             self.m.addConstr( self.beta2[l]  <= delta_max*delta_max )
@@ -330,7 +352,8 @@ class ZoneMILP(object):
         for l in self.ebound:
             zl = self.zperm[l]
             delta_max = 2*self.z['rate'][zl] # maximum beta/gamma error
-            hbeta = np.round(delta_max**2/self.consts['beta2_err'])
+            #hbeta = np.round(delta_max**2/self.consts['beta2_err'])
+            hbeta = hlp.polyhedral_h(delta_max, self.consts['beta2_err'] )
             d = 2*delta_max/hbeta
             for t in range(int(hbeta)+1):
                 beta_coeff  = -2*(-delta_max + t*d - beta_bar[l])
@@ -342,6 +365,20 @@ class ZoneMILP(object):
                 self.g2[l,t].RHS = gamma_rhs
                 self.m.chgCoeff(self.b2[l,t], self.beta[l], beta_coeff)
                 self.m.chgCoeff(self.g2[l,t], self.gamma[l], gamma_coeff)
+
+    def auglag_error(self):
+        e = {'beta': {}, 'gamma': {}}
+        for l in self.beta2:
+            e['beta'][l]  = (self.beta[l].X  - self.beta_bar[l])**2  - self.beta2[l].X
+            e['gamma'][l] = (self.gamma[l].X - self.gamma_bar[l])**2 - self.gamma2[l].X
+        return e
+
+    def phi_error(self):
+        e = np.empty(self.L)
+        for _n1,_n2,_l in self.G.edges_iter(data='id'):
+            n1 = self.nmap[_n1]; n2 = self.nmap[_n2];  l = self.lmap[_l];
+            e[l] = 0.5*(self.theta[n1].X - self.theta[n2].X)**2 - self.phi[l].X
+        return e
     
     def remove_abs_vars(self):
         """ remove the beta_abs and gamma_abs variables and constraints"""
@@ -361,13 +398,21 @@ class ZoneMILP(object):
         self.m.remove(self.gamma_n)
 
         if self.Nbsh > 0:
-            def obj():
-                return self.Pg.sum('*') + self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") \
-                        + 10*self.sf.sum("*") + 100*(self.su.sum("*") + self.sd.sum("*")) 
+            def obj(scale=1):
+                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
+                for k,v in w.items():
+                    w[k] = max(v*scale,v)
+                w['phi'] = max(w.values())
+                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") \
+                        + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*")
         else:
-            def obj():
-                return self.Pg.sum('*') + self.phi.sum('*') \
-                        + 10*self.sf.sum("*") + 100*(self.su.sum("*") + self.sd.sum("*")) 
+            def obj(scale=1):
+                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
+                for k,v in w.items():
+                    w[k] = max(v*scale,v)
+                w['phi'] = max(w.values())
+                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') \
+                        + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") 
         self.obj = obj
 
     def optimize(self, write_model=False, **kwargs):
@@ -379,6 +424,7 @@ class ZoneMILP(object):
         try:
             if self.m.solcount == 0:
                 self.fix_Pi()
+                self.clear_tmpconst()
                 self.m.setParam('BarHomogeneous', 1)
                 self.m.setParam('NumericFocus', 3)
                 if write_model:
@@ -394,6 +440,12 @@ class ZoneMILP(object):
                 self.store_Pi()
         except AttributeError:
             pass
+        #self.clear_tmpconst()
+
+    #def clear_tmpconst(self):
+    #    import ipdb; ipdb.set_trace()
+    #    for i in range(len(self.m._tmpconst)):
+    #        self.m.remove(self.m._tmpconst.pop())
 
     def store_Pi(self):
             self.m._Pi = {(i,j): self.Pi[i,j].X for i,j in self.Pi.keys()}

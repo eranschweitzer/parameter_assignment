@@ -753,7 +753,8 @@ def def_consts(**kwargs):
     c    = {}
     c['fmax'] = 9            # default per unit maximum real power flow on line
     c['dmax'] = 40*np.pi/180 # angle difference limit over a branch
-    c['htheta'] = 7          # number of segments for approximating (theta_f - theta_t)^2/2
+    #c['htheta'] = 7          # number of segments for approximating (theta_f - theta_t)^2/2
+    c['phi_err'] = 1e-3      # desired maximum error for polyedral relaxation of (theta_f-theta_t)^2/2
     c['umin'] = np.log(0.9)  # minimum ln(voltage)
     c['umax'] = np.log(1.05) # maximum ln(voltage)
     c['lossmin'] = 0.01      # minimum losses required (fraction = (Pg - Pd)/Pg)
@@ -793,6 +794,16 @@ def edge_spread_from_v(G,v):
 
 def theta_max(G,v,dmax=np.pi/2, margin=2*np.pi):
     return edge_spread_from_v(G,v)*dmax + margin
+
+def polyhedral_h(delta_max,epsilon):
+    """ return parameter h for creating polyhedral constraints to quadratic terms """
+    return np.ceil( delta_max/np.sqrt(epsilon) ) 
+
+def savepath_replace(savename, newpath):
+    parts = savename.split('/')
+    if newpath[-1] != '/':
+        newpath += '/'
+    return newpath + parts[-1]
 
 def testing(*args):
     import fit_inputs as ftin 
