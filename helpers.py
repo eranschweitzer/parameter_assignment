@@ -759,7 +759,7 @@ def def_consts(**kwargs):
     c['umax'] = np.log(1.05) # maximum ln(voltage)
     c['lossmin'] = 0.01      # minimum losses required (fraction = (Pg - Pd)/Pg)
     c['lossterm']= 0.05      # terminate optimization when if losses are at this level or below
-    c['thresholds'] = {'gap':       5,
+    c['thresholds'] = {'gap':       5.,
                   'mean_diff': 0.05,
                   'max_diff':  0.1,
                   'itermax':   5}

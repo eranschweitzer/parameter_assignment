@@ -1,14 +1,14 @@
 import numpy as np
 
-def solve(solvers,e2z,logging=None,solck=False, print_boundary=False, **kwargs):
+def solve(solvers,e2z,logging=None,solck=False, print_boundary=False, logger=None, **kwargs):
     beta_bar = {l:0 for l in e2z}
     gamma_bar= {l:0 for l in e2z}
     for i, s in enumerate(solvers):
         if logging is not None:
-            logging(i,pre=True)
-        s.optimize(**kwargs)
+            logging(i,pre=True,logger=logger)
+        s.optimize(logger=logger,**kwargs)
         if logging is not None:
-            logging(s,print_boundary=print_boundary)
+            logging(s,print_boundary=print_boundary,logger=logger)
         if solck:
             s.sol_check()
         #### update avg. values ####

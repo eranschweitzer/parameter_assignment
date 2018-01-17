@@ -1,9 +1,10 @@
 import networkx as nx
 import helpers as hlp
 import logging
+import logfun as lg
 
-FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
-logging.basicConfig(format=FORMAT,level=logging.DEBUG,datefmt='%H:%M:%S')
+#FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
+#logging.basicConfig(format=FORMAT,level=logging.DEBUG,datefmt='%H:%M:%S')
 
 def topology(bus_data,branch_data):
     nmap   = dict(zip(bus_data['BUS_I'],range(bus_data.shape[0])))
@@ -22,9 +23,9 @@ def zones(G,Nmax,Nmin):
     import zone_splitting as zp
 
     ############ Partition Into Zones #############
-    logging.info('Splitting graph into zones')
+    lg.log_zones_split(pre=True)
     zones, boundaries, eboundary_map = zp.get_zones(G,Nmax,Nmin)
-    logging.info('%d zones created', len(zones))
+    lg.log_zones_split(pre=False, num=len(zones))
     ##### sort based on number of boundary edges #####
     boundary_edge_num  = {i:len(eboundary_map[i][1]) for i in range(len(zones))}
     boundary_edge_sort = sorted(boundary_edge_num,key=boundary_edge_num.get)
@@ -42,9 +43,7 @@ def zone_inputs(zones,boundaries,eboundary_map,resd,resg,resf,resz,log_samples,S
     """
     inputs = []
     for i,(H,boundary,ebound) in enumerate(zip(zones,boundaries,eboundary_map)):
-        logging.info('-------------------')
-        logging.info('Initializing Zone %d: %d nodes, %d edges, %d boundary edges', i, H.number_of_nodes(), H.number_of_edges(), len(ebound[1]))
-        logging.info('-------------------')
+        lg.log_zone_init(i, H, ebound)
         ### Sample Power and Impedance ####
         inputs.append({})
         inputs[i]['S'] = hlp.multivar_power_sample(H.number_of_nodes(),resd,resg,resf)

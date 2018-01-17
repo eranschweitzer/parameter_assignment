@@ -5,10 +5,12 @@ import pandas as pd
 import helpers as hlp
 import logging
 
-FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
-logging.basicConfig(format=FORMAT,level=logging.DEBUG,datefmt='%H:%M:%S')
+#FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
+#logging.basicConfig(format=FORMAT,level=logging.DEBUG,datefmt='%H:%M:%S')
 
-def rescheck(data, G=None, maps=None, ebound_map=None):
+def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
+    if logger is None:
+        logger = logging.getLogger('root')
     if G is None:
         G = data['G']
     N = G.number_of_nodes()
@@ -92,55 +94,55 @@ def rescheck(data, G=None, maps=None, ebound_map=None):
     #    import ipdb; ipdb.set_trace()
 
     
-    logging.info('+++++++++++++++++++++++++++++++')
-    logging.info('Solution Verification')
-    logging.info('+++++++++++++++++++++++++++++++')
-    logging.info('Total load: %0.4f MW, Total gen: %0.4f MW' ,100*sum(data['Pd']),100*sum(data['Pg']))
-    logging.info('Total load: %0.4f MVar, Total gen: %0.4f MVar' ,100*sum(data['Qd']),100*sum(data['Qg']))
+    logger.info('+++++++++++++++++++++++++++++++')
+    logger.info('Solution Verification')
+    logger.info('+++++++++++++++++++++++++++++++')
+    logger.info('Total load: %0.4f MW, Total gen: %0.4f MW' ,100*sum(data['Pd']),100*sum(data['Pg']))
+    logger.info('Total load: %0.4f MVar, Total gen: %0.4f MVar' ,100*sum(data['Qd']),100*sum(data['Qg']))
     if ebound_map is not None:
-        logging.info('Total imports/exports (+/-): %0.4f MW, %0.4f MVAr', 100*beta.sum(), 100*gamma.sum())
-    logging.info('Losses [MW]: %0.3g, %0.3f%%' ,100*(sum(data['Pg'] + beta - data['Pd'])), 100*sum(data['Pg'] + beta - data['Pd'])/sum(data['Pd']))
-    logging.info('Maximum |Pf|: %0.4f MW,   Maximum |Pt|: %0.4f MW' ,100*max(np.abs(data['Pf'])), 100*max(np.abs(data['Pt'])))
-    logging.info('Maximum |Qf|: %0.4f MVar, Maximum |Qt|: %0.4f Mvar' ,100*max(np.abs(data['Qf'])), 100*max(np.abs(data['Qt'])))
-    logging.info('Maximum Pf error: %0.3g' ,max(np.abs(data['Pf'] - Pf)))
-    logging.info('Maximum Qf error: %0.3g' ,max(np.abs(data['Qf'] - Qf)))
-    logging.info('Maximum Pt error: %0.3g' ,max(np.abs(data['Pt'] - Pt)))
-    logging.info('Maximum Qt error: %0.3g' ,max(np.abs(data['Qt'] - Qt)))
-    logging.info('Maximum |P balance|: %0.3g' , max(np.abs(balance['P'])))
-    logging.info('Maximum |Q balance|: %0.3g' , max(np.abs(balance['Q'])))
-    logging.info('Maximum angle difference: %0.2f deg' ,max(np.abs(delta))*180/np.pi)
-    logging.info('Maximum differentce between phi and delta^2/2 (diff, delta, phi): %0.3g, %0.3g, %0.3g' ,max(np.abs(phierr)), delta[phierr_idx], data['phi'][phierr_idx])
-    logging.info('Maximum v: %0.3f, Minimum v: %0.3f' , max(np.exp(data['u'])), min(np.exp(data['u'])))
-    logging.info('Pmax violations: %d, Pmin violations: %d' ,sum(Plim['max']), sum(Plim['min']))
-    logging.info('Qmax violations: %d, Qmin violations: %d' ,sum(Qlim['max']), sum(Qlim['min']))
-    logging.info('Flow limits:')
-    logging.info('Sum Real Power Violations (including slacks) (Pf, Pt): %d, %d', sum(Flim['Pf']), sum(Flim['Pt']))
-    logging.info('Sum Reactive Power Violations (including slacks) (Qf, Qt): %d, %d', sum(Flim['Qf']), sum(Flim['Qt']))
-    logging.info('Shunts:')
+        logger.info('Total imports/exports (+/-): %0.4f MW, %0.4f MVAr', 100*beta.sum(), 100*gamma.sum())
+    logger.info('Losses [MW]: %0.3g, %0.3f%%' ,100*(sum(data['Pg'] + beta - data['Pd'])), 100*sum(data['Pg'] + beta - data['Pd'])/sum(data['Pd']))
+    logger.info('Maximum |Pf|: %0.4f MW,   Maximum |Pt|: %0.4f MW' ,100*max(np.abs(data['Pf'])), 100*max(np.abs(data['Pt'])))
+    logger.info('Maximum |Qf|: %0.4f MVar, Maximum |Qt|: %0.4f Mvar' ,100*max(np.abs(data['Qf'])), 100*max(np.abs(data['Qt'])))
+    logger.info('Maximum Pf error: %0.3g' ,max(np.abs(data['Pf'] - Pf)))
+    logger.info('Maximum Qf error: %0.3g' ,max(np.abs(data['Qf'] - Qf)))
+    logger.info('Maximum Pt error: %0.3g' ,max(np.abs(data['Pt'] - Pt)))
+    logger.info('Maximum Qt error: %0.3g' ,max(np.abs(data['Qt'] - Qt)))
+    logger.info('Maximum |P balance|: %0.3g' , max(np.abs(balance['P'])))
+    logger.info('Maximum |Q balance|: %0.3g' , max(np.abs(balance['Q'])))
+    logger.info('Maximum angle difference: %0.2f deg' ,max(np.abs(delta))*180/np.pi)
+    logger.info('Maximum differentce between phi and delta^2/2 (diff, delta, phi): %0.3g, %0.3g, %0.3g' ,max(np.abs(phierr)), delta[phierr_idx], data['phi'][phierr_idx])
+    logger.info('Maximum v: %0.3f, Minimum v: %0.3f' , max(np.exp(data['u'])), min(np.exp(data['u'])))
+    logger.info('Pmax violations: %d, Pmin violations: %d' ,sum(Plim['max']), sum(Plim['min']))
+    logger.info('Qmax violations: %d, Qmin violations: %d' ,sum(Qlim['max']), sum(Qlim['min']))
+    logger.info('Flow limits:')
+    logger.info('Sum Real Power Violations (including slacks) (Pf, Pt): %d, %d', sum(Flim['Pf']), sum(Flim['Pt']))
+    logger.info('Sum Reactive Power Violations (including slacks) (Qf, Qt): %d, %d', sum(Flim['Qf']), sum(Flim['Qt']))
+    logger.info('Shunts:')
     if not isinstance(data['GS'],int):
-        logging.info('\tNumber of Gsh: %d', sum(data['GS'] != 0))
+        logger.info('\tNumber of Gsh: %d', sum(data['GS'] != 0))
         if np.any(data['GS'] != 0):
-            logging.info('\tGS (min, max): %0.3f, %0.3f', min(data['GS'][data['GS'] != 0]), max(data['GS'][data['GS'] != 0]))
+            logger.info('\tGS (min, max): %0.3f, %0.3f', min(data['GS'][data['GS'] != 0]), max(data['GS'][data['GS'] != 0]))
     else:
-        logging.info('\tNo Gsh')
+        logger.info('\tNo Gsh')
     if not isinstance(data['BS'],int):
-        logging.info('\tNumber of Bsh: %d', sum(data['BS'] != 0))
+        logger.info('\tNumber of Bsh: %d', sum(data['BS'] != 0))
         if np.any(data['BS'] != 0):
-            logging.info('\tBS (min, max): %0.3f, %0.3f', min(data['BS'][data['BS'] != 0]), max(data['BS'][data['BS'] != 0]))
+            logger.info('\tBS (min, max): %0.3f, %0.3f', min(data['BS'][data['BS'] != 0]), max(data['BS'][data['BS'] != 0]))
     else:
-        logging.info('\tNo Bsh')
-    logging.info('Slacks:')
-    logging.info('\t Max Flow Slack: %0.3f', max(data['sf']))
-    logging.info('\t Max u Slack: %0.3f', max(data['su']))
-    logging.info('\t Max delta Slack: %0.3f', max(data['sd']))
+        logger.info('\tNo Bsh')
+    logger.info('Slacks:')
+    logger.info('\t Max Flow Slack: %0.3f', max(data['sf']))
+    logger.info('\t Max u Slack: %0.3f', max(data['su']))
+    logger.info('\t Max delta Slack: %0.3f', max(data['sd']))
     if 'beta_p' in data:
-        logging.info('Boundary Value Test:')
-        logging.info('\tbeta - beta_p + beta_n (max, min): %0.3g, %0.3g', max(beta_abs), min(beta_abs))
-        logging.info('\tgamma - gamma_p + gamma_n (max, min): %0.3g, %0.3g', max(gamma_abs), min(gamma_abs))
+        logger.info('Boundary Value Test:')
+        logger.info('\tbeta - beta_p + beta_n (max, min): %0.3g, %0.3g', max(beta_abs), min(beta_abs))
+        logger.info('\tgamma - gamma_p + gamma_n (max, min): %0.3g, %0.3g', max(gamma_abs), min(gamma_abs))
     if 'beta2' in data:
-        logging.info('Polyhedral Relaxation of Augmented Lagrangian Test:')
-        logging.info('\tbeta (max, min): %0.3g, %0.3g', max(aug_lag_error['beta'].values()), min(aug_lag_error['beta'].values()) )
-        logging.info('\tgamma (max, min): %0.3g, %0.3g', max(aug_lag_error['gamma'].values()), min(aug_lag_error['gamma'].values()) )
+        logger.info('Polyhedral Relaxation of Augmented Lagrangian Test:')
+        logger.info('\tbeta (max, min): %0.3g, %0.3g', max(aug_lag_error['beta'].values()), min(aug_lag_error['beta'].values()) )
+        logger.info('\tgamma (max, min): %0.3g, %0.3g', max(aug_lag_error['gamma'].values()), min(aug_lag_error['gamma'].values()) )
     
 def map_values(maps,n1,n2,l):
     if maps is None:

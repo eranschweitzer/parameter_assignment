@@ -2,9 +2,12 @@ import pickle
 import numpy as np
 import gurobipy as gb
 import formulation_ea as fm
+import helpers as hlp
 import multvar_solve as slv
 import multvar_solution_check as chk
 import makempc as mmpc
+import multiprocessing as mlt
+import logfun as lg
 
 def mutate(Psi0,K,pm=0.05):
     Psi = EAgeneration(Psi0.inputs)
@@ -49,6 +52,10 @@ class EAindividual(object):
     
     def copy(self):
         return EAindividual(self.Z.shape[0], Z=self.Z)
+
+    def cleanup(self):
+        self.opt = None
+        self.zones = []
     
     def permute(self,pm):
         for i in range(self.Z.shape[0]):
@@ -58,34 +65,38 @@ class EAindividual(object):
                 self.Z[i]    = self.Z[swap]
                 self.Z[swap] = _v
 
-    def solve(self,inputs,logging=None,**kwargs):
+    def solve(self,inputs,logging=None, parallel=False, **kwargs):
         if logging is not None:
             try:
                 log_iterations = logging['log_iterations']
             except KeyError:
                 log_iterations = None
+            if 'logger' not in logging:
+                logging['logger'] = None
+        else:
+            log_iterations = None
         if len(self.zones) == 0:
             raise(BaseException("No Zones initialized"))
         elif len(self.zones) == 1:
             self.opt = self.zones[0]
             if logging is not None:
-                logging['log_single_system'](self.opt, start=True)
+                logging['log_single_system'](self.opt, start=True, logger=logging['logger'])
             self.opt.optimize()
             if logging is not None:
-                logging['log_single_system'](self.opt, start=False)
+                logging['log_single_system'](self.opt, start=False, logger=logging['logger'])
         else:
             i = 0
             while True:
                 if logging is not None:
                     method = kwargs.get("rho_update", 'None')
-                    logging['log_iteration_start'](i, slv.rho_modify(inputs['globals']['consts']['rho'],i, method) )
-                beta_bar, gamma_bar, ivals = slv.solve(self.zones, inputs['globals']['e2z'],logging=log_iterations,**kwargs)
+                    logging['log_iteration_start'](i, slv.rho_modify(inputs['globals']['consts']['rho'],i, method), logger=logging['logger'] )
+                beta_bar, gamma_bar, ivals = slv.solve(self.zones, inputs['globals']['e2z'],logging=log_iterations, logger=logging['logger'], **kwargs)
                 if logging is not None:
-                    logging['log_iteration_summary'](beta_bar,gamma_bar, ivals)
+                    logging['log_iteration_summary'](beta_bar,gamma_bar, ivals, logger=logging['logger'])
                 flag,msg = slv.termination(i, ivals, inputs['globals']['consts']['thresholds'])
                 if flag:
                     if logging is not None:
-                        logging['log_termination'](msg)
+                        logging['log_termination'](msg, logger=logging['logger'])
                     break
                 else:
                     slv.update(self.zones, i, beta_bar, gamma_bar, inputs['globals']['consts']['rho'], **kwargs)
@@ -94,22 +105,24 @@ class EAindividual(object):
                         for zone in self.zones:
                             zone.set_timelimit(1500)
             if logging is not None:
-                logging['log_single_system'](self.opt, start=True)
-            self.fullsolve(inputs)
+                logging['log_single_system'](self.opt, start=True, logger=logging['logger'])
+            self.fullsolve(inputs, logger=logging['logger'])
             if logging is not None:
-                logging['log_single_system'](self.opt, start=False)
+                logging['log_single_system'](self.opt, start=False, logger=logging['logger'])
         self.set_f()
         self.set_vars(inputs['globals']['z']) 
-        self.sol_check(G=inputs['globals']['G'])
+        self.sol_check(G=inputs['globals']['G'], logger=logging['logger'])
+        if parallel:
+            self.cleanup()
 
     def sol_check(self,**kwargs):
         chk.rescheck(self.vars,**kwargs)
 
-    def fullsolve(self, inputs):
+    def fullsolve(self, inputs, logger=None):
         ## set nodal variables
         self.joint_s(inputs['globals']['G'].number_of_nodes())
         self.opt = fm.ZoneMILP(inputs['globals']['G'], inputs['globals']['consts'], {'z':inputs['globals']['z'], 'S': self._S}, self.Z, nperm=True)
-        self.opt.optimize()
+        self.opt.optimize(logger=logger)
 
     def joint_s(self, N):
         self._S = {}
@@ -271,5 +284,20 @@ class EAgeneration(object):
             pickle.dump(_tmp, open( base_str + "pkl", 'wb') )
         elif ftype == 'mpc':
             mmpc.savempc(_tmp, base_str + "mat", **kwargs)
-            
+    
+    def parallel_solve(self, args):
+        psi = args[0]; ind = args[1]
+        fname = hlp.savepath_replace(self.inputs['globals']['consts']['saving']['savename'], self.inputs['globals']['consts']['saving']['logpath']).split('.')[0] + "_ind" + str(ind) + ".log"
+        logger = lg.logging_setup(fname=fname, logger='ind%d' %(ind), ret=True)
+        lgslv = self.inputs['globals']['consts'].get("logging",None)
+        try:
+            lgslv['logger'] = logger
+        except TypeError:
+            pass
+        psi.initialize_zones(self.inputs)
+        psi.solve(self.inputs, logging=lgslv, parallel=True, **self.inputs['globals']['consts']['solve_kwargs'])
+        return psi
 
+    def parallel_wrap(self):
+        p = mlt.Pool(len(self.Psi))
+        self.Psi = p.map(self.parallel_solve, zip(self.Psi[:], range(len(self.Psi))) )

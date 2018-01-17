@@ -5,7 +5,8 @@ import numpy as np
 from scipy import sparse
 import networkx as nx
 import helpers as hlp
-import logging
+#import logging
+import logfun as lg
 
 def mycallback2(model,where):
     if where == gb.GRB.Callback.MIPSOL:
@@ -20,27 +21,32 @@ def mycallback2(model,where):
             if 0.5*(model.cbGetSolution(model._theta[n1]) - model.cbGetSolution(model._theta[n2]))**2 - model.cbGetSolution(model._phi[l]) < -1e-5:
                 #model._tmpconst.append(model.addConstr(model._phi[l] <= 0.5*(model.cbGetSolution(model._theta[n1]) - model.cbGetSolution(model._theta[n2]))**2))
                 phiconst += 1
-        logging.info('Current solution: solcnt: %d, solmin: %d, sum(beta_in)=%0.2f, sum(beta_out)=%0.2f, sum(Pg)=%0.2f, sum(load)=%0.2f, criteria=%0.3g, phiconst=%d',solcnt,model._solmin,in_sum, out_sum, Pg, model._pload, criteria, phiconst)
+        #logging.info('Current solution: solcnt: %d, solmin: %d, sum(beta_in)=%0.2f, sum(beta_out)=%0.2f, sum(Pg)=%0.2f, sum(load)=%0.2f, criteria=%0.3g, phiconst=%d',solcnt,model._solmin,in_sum, out_sum, Pg, model._pload, criteria, phiconst)
+        lg.log_callback(model, solcnt, in_sum, out_sum, Pg, criteria, phiconst, logger=model._logger)
         if (solcnt > model._solmin) and (criteria < model._lossterm):
-            logging.info('      terminating in MISOL due to minimal losses')
+            #logging.info('      terminating in MISOL due to minimal losses')
+            lg.log_calback_terminate('MISOL', 'minimal losses', logger=model._logger)
             model.terminate()
     if where == gb.GRB.Callback.MIPSOL:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIPSOL_SOLCNT) + 1
         if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500): 
-            logging.info('      terminating in MISOL due to time')
+            #logging.info('      terminating in MISOL due to time')
+            lg.log_calback_terminate('MISOL', 'time', logger=model._logger)
             model.terminate()
     elif where == gb.GRB.Callback.MIP:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIP_SOLCNT) + 1
         if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
-            logging.info('      terminating in MIP due to time')
+            #logging.info('      terminating in MIP due to time')
+            lg.log_calback_terminate('MIP', 'time', logger=model._logger)
             model.terminate()
     elif where == gb.GRB.Callback.MIPNODE:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIPNODE_SOLCNT) + 1
         if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
-            logging.info('      terminating in MIPNODE due to time')
+            #logging.info('      terminating in MIPNODE due to time')
+            lg.log_calback_terminate('MIPNODE', 'time', logger=model._logger)
             model.terminate()
     else:
         pass
@@ -383,19 +389,19 @@ class ZoneMILP(object):
     def remove_abs_vars(self):
         """ remove the beta_abs and gamma_abs variables and constraints"""
         ### constraints
-        self.m.remove(self.bp_abs)
-        self.m.remove(self.bn_abs)
-        self.m.remove(self.gp_abs)
-        self.m.remove(self.gn_abs)
-        self.m.remove(self.bp_lim)
-        self.m.remove(self.bn_lim)
-        self.m.remove(self.gp_lim)
-        self.m.remove(self.gn_lim)
+        self.remove_try(self.bp_abs)
+        self.remove_try(self.bn_abs)
+        self.remove_try(self.gp_abs)
+        self.remove_try(self.gn_abs)
+        self.remove_try(self.bp_lim)
+        self.remove_try(self.bn_lim)
+        self.remove_try(self.gp_lim)
+        self.remove_try(self.gn_lim)
         ### variables
-        self.m.remove(self.beta_p)
-        self.m.remove(self.beta_n)
-        self.m.remove(self.gamma_p)
-        self.m.remove(self.gamma_n)
+        self.remove_try(self.beta_p)
+        self.remove_try(self.beta_n)
+        self.remove_try(self.gamma_p)
+        self.remove_try(self.gamma_n)
 
         if self.Nbsh > 0:
             def obj(scale=1):
@@ -415,7 +421,15 @@ class ZoneMILP(object):
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") 
         self.obj = obj
 
-    def optimize(self, write_model=False, **kwargs):
+    def remove_try(self, var):
+        try:
+            self.m.remove(var)
+        except gb.GurobiError:
+            for k,v in var.items():
+                self.m.remove(v)
+
+    def optimize(self, write_model=False, logger=None, **kwargs):
+        self.m._logger = logger
         if write_model:
             self.write(pre=True, **kwargs)
         self.m.optimize(mycallback2)

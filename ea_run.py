@@ -2,25 +2,23 @@ import time
 import numpy as np
 import networkx as nx
 import random
-import logging
 import pickle
 import helpers as hlp
 import multvar_init as mvinit
 import ea_init as init
 import logfun as lg
 
-def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=False, actual_vars_d=False, actual_vars_g=True, actual_vars_z=True, debug=False, **kwargs):
+def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=False, actual_vars_d=False, actual_vars_g=True, actual_vars_z=True, debug=False, logfile=None, **kwargs):
 
     fin = locals().copy()
     del fin['savename']; del fin['fdata']; del fin['kwargs']
     fin.update(**kwargs)
     start = time.time()
-    #FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
-    #logging.basicConfig(format=FORMAT,level=logging.INFO,datefmt='%H:%M:%S')
-
-    lg.log_function_inputs(savename,fdata,**fin) 
     timestamps = {}
     timestamps['start'] = lg.timestamp()
+
+    lg.logging_setup(fname=logfile)
+    lg.log_function_inputs(savename,fdata,**fin) 
 
     #### INPUTS #########################
     truelist = [True,'True','true','t','1']
@@ -47,6 +45,7 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Fa
                          'fname': 'debug/mymodel',
                          'rho_update': 'sqrt'}
     C['savempc'] = {'savempc': True, 'mpcpath': 'mpc/', 'expand_rate': True, 'vlim_precision': 2}
+    C['parallel'] = False
     hlp.update_consts(C,fin)
 
     C['htheta'] = hlp.polyhedral_h(C['dmax'], C['phi_err'])
@@ -86,6 +85,8 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Fa
              'log_iteration_summary':lg.log_iteration_summary,
              'log_termination': lg.log_termination,
              'log_single_system': lg.log_single_system}
+    inputs['globals']['consts']['logging'] = lgslv
+    inputs['globals']['consts']['saving'] = {'savename': savename, 'logpath': 'logs/'}
     ### Main Loop ####################
     import ea
     Psi = [ea.EAgeneration(inputs), None]
@@ -94,10 +95,13 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Fa
         Psi[1] = Psi[0].mutate(C['ea']['individuals'], pm=C['ea']['mutate_probability'])
         if debug:
             debug_dump(savename, Psi, i, timestamps['start'])
-        Psi[1].initialize_optimization(logging=lg.log_optimization_init)
-        for ind, psi in enumerate(Psi[1].iter()):
-            lg.log_individual(ind)
-            psi.solve(Psi[1].inputs,logging=lgslv, **C['solve_kwargs'])
+        if not C['parallel']:
+            Psi[1].initialize_optimization(logging=lg.log_optimization_init)
+            for ind, psi in enumerate(Psi[1].iter()):
+                lg.log_individual(ind)
+                psi.solve(Psi[1].inputs,logging=lgslv, **C['solve_kwargs'])
+        else:
+            Psi[1].parallel_wrap()
         Psi[0] += Psi[1]
         Psi[0].selection(C['ea']['ea_select'])
         lg.log_generation(i, Psi[0], start=False)
