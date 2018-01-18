@@ -46,6 +46,7 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Fa
                          'rho_update': 'sqrt'}
     C['savempc'] = {'savempc': True, 'mpcpath': 'mpc/', 'expand_rate': True, 'vlim_precision': 2}
     C['parallel'] = False
+    C['parallel_zones'] = False
     hlp.update_consts(C,fin)
 
     C['htheta'] = hlp.polyhedral_h(C['dmax'], C['phi_err'])

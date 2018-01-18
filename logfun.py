@@ -167,7 +167,7 @@ def log_iteration_start(i,rho, logger=None):
     logger.info('---------------------------------------')
     logger.info('ITERATION %d, rho=%0.2f', i,rho)
 
-def log_iterations(s,pre=False,print_boundary=False, logger=None):
+def log_iterations(s,pre=False,print_boundary=False, logger=None, zone=None):
     if logger is None:
         logger = logging.getLogger('root')
     if pre:
@@ -186,7 +186,10 @@ def log_iterations(s,pre=False,print_boundary=False, logger=None):
             auglag_err = s.auglag_error()
         except:
             auglag_err = None
-        logger.info("Solved with status %s (%d), objective=%0.3f", model_status(s.m), s.m.status, s.m.objVal)
+        if zone is None:
+            logger.info("Solved with status %s (%d), objective=%0.3f", model_status(s.m), s.m.status, s.m.objVal)
+        else:
+            logger.info("(zone %d) Solved with status %s (%d), objective=%0.3f", zone, model_status(s.m), s.m.status, s.m.objVal)
         logger.info("\tgeneration: %0.3g MW, load: %0.3g MW, import: %0.3g MW, export: %0.3g MW", Pg*100, s.m._pload*100, in_sum*100, out_sum*100)
         logger.info("\tgeneration: %0.3g MVAr, load: %0.3g MVar, import: %0.3g MVAr, export: %0.3g MVAr", Qg*100, Qd*100, in_sum2*100, out_sum2*100)
         logger.info("\tphi error (max, min): %0.3g, %0.3g", max(phi_err), min(phi_err))
@@ -279,7 +282,7 @@ def log_zone_init(i, H, ebound, logger=None):
 def log_callback(model, solcnt, in_sum, out_sum, Pg, criteria, phiconst, logger=None):
     if logger is None:
         logger = logging.getLogger('root')
-    logger.info('Current solution: solcnt: %d, solmin: %d, sum(beta_in)=%0.2f, sum(beta_out)=%0.2f, sum(Pg)=%0.2f, sum(load)=%0.2f, criteria=%0.3g, phiconst=%d', solcnt, model._solmin, in_sum, out_sum, Pg, model._pload, criteria, phiconst)
+    logger.info('(zone %d) Current solution: solcnt: %d, solmin: %d, sum(beta_in)=%0.2f, sum(beta_out)=%0.2f, sum(Pg)=%0.2f, sum(load)=%0.2f, criteria=%0.3g, phiconst=%d', model._zone, solcnt, model._solmin, in_sum, out_sum, Pg, model._pload, criteria, phiconst)
 
 def log_calback_terminate(where, why, logger=None):
     if logger is None:

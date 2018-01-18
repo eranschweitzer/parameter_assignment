@@ -65,7 +65,7 @@ class EAindividual(object):
                 self.Z[i]    = self.Z[swap]
                 self.Z[swap] = _v
 
-    def solve(self,inputs,logging=None, parallel=False, **kwargs):
+    def solve(self,inputs,logging=None, parallel=False, parallel_zones=False, **kwargs):
         if logging is not None:
             try:
                 log_iterations = logging['log_iterations']
@@ -76,7 +76,15 @@ class EAindividual(object):
         else:
             log_iterations = None
         if len(self.zones) == 0:
-            raise(BaseException("No Zones initialized"))
+            if parallel_zones is True:
+                self.parsolve(inputs,logging=logging,**kwargs)
+                if logging is not None:
+                    logging['log_single_system'](self.opt, start=True, logger=logging['logger'])
+                self.fullsolve(inputs, logger=logging['logger'], calcS=False)
+                if logging is not None:
+                    logging['log_single_system'](self.opt, start=False, logger=logging['logger'])
+            else:
+                raise(BaseException("No Zones initialized"))
         elif len(self.zones) == 1:
             self.opt = self.zones[0]
             if logging is not None:
@@ -118,9 +126,10 @@ class EAindividual(object):
     def sol_check(self,**kwargs):
         chk.rescheck(self.vars,**kwargs)
 
-    def fullsolve(self, inputs, logger=None):
+    def fullsolve(self, inputs, logger=None, calcS=True):
         ## set nodal variables
-        self.joint_s(inputs['globals']['G'].number_of_nodes())
+        if calcS:
+            self.joint_s(inputs['globals']['G'].number_of_nodes())
         self.opt = fm.ZoneMILP(inputs['globals']['G'], inputs['globals']['consts'], {'z':inputs['globals']['z'], 'S': self._S}, self.Z, nperm=True)
         self.opt.optimize(logger=logger)
 
@@ -138,7 +147,7 @@ class EAindividual(object):
                 else:
                     mult = 1
                 self._S[k][zone.rnmap] = _v[k]*mult
-        ### copy the rest of keys of S that are no already in vars
+        ### copy the rest of keys of S that are not already in vars
         for k,v in self.zones[0].S.items():
             if k not in self._S:
                 self._S[k] = v
@@ -169,31 +178,131 @@ class EAindividual(object):
             except AttributeError:
                 pass
 
+    def parsolve(self, inputs, logging=None, **kwargs):
+       
+        e2z   = inputs['globals']['e2z']
+        zones = []
+        conns = []
+        for i,v in enumerate(inputs['locals']):
+            parent_conn, child_conn = mlt.Pipe()
+            conns.append(parent_conn)
+            zones.append( mlt.Process(target=parzone, args=(v, inputs['globals'], self.Z, i, logging, kwargs, child_conn)) )
+    
+        ### start processes
+        for z in zones:
+            z.start()
+        
+        iter = 0 
+        while True:
+            if logging is not None:
+                method = kwargs.get("rho_update", 'None')
+                logging['log_iteration_start'](iter, slv.rho_modify(inputs['globals']['consts']['rho'],iter, method), logger=logging['logger'] )
+            beta_bar = {l:0 for l in e2z}
+            gamma_bar= {l:0 for l in e2z}
+    
+            ### wait for beta and gamma
+            beta = {}; gamma = {}
+            for i, conn in enumerate(conns):
+                data = conn.recv()
+                beta[i] = data['beta']; gamma[i] = data['gamma']
+    
+            ### calculate averages
+            for i in beta:
+                for l in beta[i]:
+                    beta_bar[l]  += beta[i][l]/2
+                    gamma_bar[l] += gamma[i][l]/2
+    
+            ### calculate errors
+            gap = {'beta':0, 'gamma':0}
+            beta_diff = {}; gamma_diff= {}
+            for l in beta_bar:
+                beta_diff[l]   = np.abs( beta[e2z[l][0]][l] - beta[e2z[l][1]][l] )
+                gamma_diff[l]  = np.abs( gamma[e2z[l][0]][l] - gamma[e2z[l][1]][l] )
+                for i in e2z[l]:
+                    gap['beta'] += (beta[i][l]  - beta_bar[l])**2
+                    gap['gamma']+= (gamma[i][l] - gamma_bar[l])**2
+            mean_diff = {'beta':  sum(beta_diff.values())/len(beta_diff),
+                         'gamma': sum(gamma_diff.values())/len(gamma_diff)}
+            max_diff  = {'beta': max(beta_diff.values()), 'gamma': max(gamma_diff.values())}
+    
+            if logging is not None:
+                logging['log_iteration_summary'](beta_bar,gamma_bar, {'gap':gap, 'mean_diff':mean_diff, 'max_diff':max_diff}, logger=logging['logger'])
+            ### check termination
+            flag, msg = slv.termination(iter, {'gap':gap, 'mean_diff':mean_diff, 'max_diff':max_diff}, inputs['globals']['consts']['thresholds']) 
+    
+            ### send termination flag
+            for conn in conns:
+                conn.send(flag)
+            if flag:
+                if logging is not None:
+                    logging['log_termination'](msg, logger=logging['logger'])
+                break
+    
+            #### send values for update
+            for conn in conns:
+                conn.send({'beta_bar':beta_bar, 'gamma_bar': gamma_bar})
+            iter += 1
+
+        ### receive S variables from zones (mod. of joint_s)
+        self._S = {}
+        #### initialize empty arrays of size N
+        for l in self.Slabels:
+            self._S[l] = np.empty(inputs['globals']['G'].number_of_nodes())
+        for i, conn in enumerate(conns):
+            data = conn.recv()
+            for k in self._S:
+                if k in ['Pd','Qd']:
+                    mult = 100
+                else:
+                    mult = 1
+                self._S[k][data['rnmap']] = data['S'][k]*mult
+            conn.close()
+        ### copy the rest of keys of S that are not already in vars
+        for k,v in inputs['locals'][0]['S'].items():
+            if k not in self._S:
+                self._S[k] = v
+    
+def parzone(locals, globals, zperm, zone, logging, kwargs, conn):
+    #### INITIALIZE ####
+    s = fm.ZoneMILP(locals['G'], globals['consts'], {'z':globals['z'], 'S': locals['S']}, zperm, ebound=locals['ebound'], ebound_map=locals['ebound_map'], zone=zone)
+    iter = 0 
+    while True:
+        #### solve zone ####
+        s.optimize(logger=logging['logger'],**kwargs)
+        with mlt.Lock():
+            logging['log_iterations'](s,logger=logging['logger'], zone=zone)
+        if kwargs.get('solck', False):
+            with mlt.Lock():
+                s.sol_check()
+
+        conn.send({'beta': s.get_beta(), 'gamma': s.get_gamma()})
+        
+        ### check whether to exit
+        flag = conn.recv()
+        if flag:
+            break
+
+        ### wait to receive the average values
+        data = conn.recv()
+
+        ### update model
+        if iter == 0:
+            s.m._solmin = 1
+            if kwargs.get("remove_abs", True):
+                s.remove_abs_vars()
+        method = kwargs.get("rho_update", 'None')
+        s.objective_update(data['beta_bar'], data['gamma_bar'], slv.rho_modify(globals['consts']['rho'], iter, method) )
+        iter += 1
+        if iter == 1:
+            s.set_timelimit(1500)
+
+    ### send variables
+    conn.send({'S':s.getvars(Sonly=True), 'rnmap': s.rnmap})
+
 class EAzone(fm.ZoneMILP):
     def __init__(self, locals, globals, zperm, zone=0):
         super().__init__(locals['G'], globals['consts'], {'z':globals['z'], 'S': locals['S']}, zperm, 
                          ebound=locals['ebound'], ebound_map=locals['ebound_map'], zone=zone)
-    def sol_check(self):
-        vars = self.getvars(includez=True)
-        ebound_map = self.m._ebound_map
-        vars['beta'] = {i:self.beta[i].X for i in self.beta}
-        vars['gamma'] = {i:self.gamma[i].X for i in self.gamma}
-        try:
-            vars['beta_p'] = {i:self.beta_p[i].X for i in self.beta_p}
-            vars['beta_n'] = {i:self.beta_n[i].X for i in self.beta_n}
-            vars['gamma_p'] = {i:self.gamma_p[i].X for i in self.gamma_p}
-            vars['gamma_n'] = {i:self.gamma_n[i].X for i in self.gamma_n}
-        except gb.GurobiError:
-            pass
-        try:
-            vars['beta2']     = {i:self.beta2[i].X     for i in self.beta2}
-            vars['gamma2']    = {i:self.gamma2[i].X    for i in self.beta2}
-            vars['beta_bar']  = {i:self.beta_bar[i]    for i in self.beta2}
-            vars['gamma_bar'] = {i:self.gamma_bar[i]   for i in self.beta2}
-        except AttributeError:
-            pass
-        maps = {'nmap':self.nmap, 'lmap': self.lmap, 'rnmap': self.rnmap, 'rlmap': self.rlmap}
-        chk.rescheck(vars,G=self.G, maps=maps, ebound_map=ebound_map)
 
 
 class EAgeneration(object):
@@ -285,19 +394,37 @@ class EAgeneration(object):
         elif ftype == 'mpc':
             mmpc.savempc(_tmp, base_str + "mat", **kwargs)
     
-    def parallel_solve(self, args):
-        psi = args[0]; ind = args[1]
-        fname = hlp.savepath_replace(self.inputs['globals']['consts']['saving']['savename'], self.inputs['globals']['consts']['saving']['logpath']).split('.')[0] + "_ind" + str(ind) + ".log"
-        logger = lg.logging_setup(fname=fname, logger='ind%d' %(ind), ret=True)
-        lgslv = self.inputs['globals']['consts'].get("logging",None)
-        try:
-            lgslv['logger'] = logger
-        except TypeError:
-            pass
-        psi.initialize_zones(self.inputs)
-        psi.solve(self.inputs, logging=lgslv, parallel=True, **self.inputs['globals']['consts']['solve_kwargs'])
-        return psi
+    def parallel_solve(self, psi, ind, conn, s):
+        #psi = args[0]; ind = args[1]
+        with s:
+            print('starting individual %d' %ind)
+            fname = hlp.savepath_replace(self.inputs['globals']['consts']['saving']['savename'], self.inputs['globals']['consts']['saving']['logpath']).split('.')[0] + "_ind" + str(ind) + ".log"
+            logger = lg.logging_setup(fname=fname, logger='ind%d' %(ind), ret=True)
+            lgslv = self.inputs['globals']['consts'].get("logging",None)
+            try:
+                lgslv['logger'] = logger
+            except TypeError:
+                pass
+            if not self.inputs['globals']['consts']['parallel_zones']:
+                psi.initialize_zones(self.inputs)
+            psi.solve(self.inputs, logging=lgslv, parallel=True, parallel_zones=self.inputs['globals']['consts']['parallel_zones'], **self.inputs['globals']['consts']['solve_kwargs'])
+            print('Finished individual %d' %ind)
+        conn.send(psi)
+        #return psi
 
     def parallel_wrap(self):
-        p = mlt.Pool(len(self.Psi))
-        self.Psi = p.map(self.parallel_solve, zip(self.Psi[:], range(len(self.Psi))) )
+        #p = mlt.Pool(min(5,len(self.Psi)))
+        s = mlt.Semaphore(min(5,len(self.Psi)))
+        conns = []
+        jobs  = []
+        for i, psi in enumerate(self.Psi):
+            parent_conn, child_conn = mlt.Pipe()
+            conns.append(parent_conn)
+            jobs.append( mlt.Process( target=self.parallel_solve, args=(psi, i, child_conn, s), daemon=False ) )
+
+        for j in jobs:
+            j.start()
+
+        for i, conn in enumerate(conns):
+            self.Psi[i] = conn.recv()
+        #self.Psi = p.map(self.parallel_solve, zip(self.Psi[:], range(len(self.Psi))) )

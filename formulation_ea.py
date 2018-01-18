@@ -7,6 +7,7 @@ import networkx as nx
 import helpers as hlp
 #import logging
 import logfun as lg
+import multvar_solution_check as chk
 
 def mycallback2(model,where):
     if where == gb.GRB.Callback.MIPSOL:
@@ -175,6 +176,7 @@ class ZoneMILP(object):
         self.m._nmap  = nmap
         self.m._lmap  = lmap
         self.m._tmpconst = []
+        self.m._zone = zone
         dphi = 2*consts['dmax']/consts['htheta']
         self.w  = {l: 0 for l in ebound}
         self.nu = {l: 0 for l in ebound}
@@ -525,6 +527,12 @@ class ZoneMILP(object):
                     pass
         return vars 
 
+    def get_beta(self):
+        return {k: v.X for k,v in self.beta.items()}
+
+    def get_gamma(self):
+        return {k: v.X for k,v in self.gamma.items()}
+
     def write(self, fname='mymodel', pre=True, **kwargs):
         # save model
         s = fname + '_zone_' + str(self.zone) 
@@ -539,3 +547,24 @@ class ZoneMILP(object):
             except:
                 pass
 
+    def sol_check(self):
+        vars = self.getvars(includez=True)
+        ebound_map = self.m._ebound_map
+        vars['beta'] = {i:self.beta[i].X for i in self.beta}
+        vars['gamma'] = {i:self.gamma[i].X for i in self.gamma}
+        try:
+            vars['beta_p'] = {i:self.beta_p[i].X for i in self.beta_p}
+            vars['beta_n'] = {i:self.beta_n[i].X for i in self.beta_n}
+            vars['gamma_p'] = {i:self.gamma_p[i].X for i in self.gamma_p}
+            vars['gamma_n'] = {i:self.gamma_n[i].X for i in self.gamma_n}
+        except gb.GurobiError:
+            pass
+        try:
+            vars['beta2']     = {i:self.beta2[i].X     for i in self.beta2}
+            vars['gamma2']    = {i:self.gamma2[i].X    for i in self.beta2}
+            vars['beta_bar']  = {i:self.beta_bar[i]    for i in self.beta2}
+            vars['gamma_bar'] = {i:self.gamma_bar[i]   for i in self.beta2}
+        except AttributeError:
+            pass
+        maps = {'nmap':self.nmap, 'lmap': self.lmap, 'rnmap': self.rnmap, 'rlmap': self.rlmap}
+        chk.rescheck(vars,G=self.G, maps=maps, ebound_map=ebound_map)
