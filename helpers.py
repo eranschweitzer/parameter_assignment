@@ -778,8 +778,16 @@ def update_consts(c,fin):
             if k in fin:
                 if type(v) is bool:
                     c[k] = fin[k] in truelist
+                elif v is None:
+                    c[k] = none_test(fin[k])
                 else:
                     c[k] = type(v)(fin[k])
+
+def none_test(x):
+    if x in ['None', 'none']:
+        return None
+    else:
+        return x
 
 def pick_ang0_node(G):
     """ select a node that will be given angle 0 

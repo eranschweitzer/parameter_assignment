@@ -1,3 +1,5 @@
+import os
+import sys
 import pickle
 import numpy as np
 import gurobipy as gb
@@ -7,6 +9,7 @@ import multvar_solve as slv
 import multvar_solution_check as chk
 import makempc as mmpc
 import multiprocessing as mlt
+import subprocess
 import logfun as lg
 
 def mutate(Psi0,K,pm=0.05):
@@ -42,6 +45,7 @@ class EAindividual(object):
         self.f    = None
         self.opt  = None
         self.vars = None
+        self.ind  = None
         self.zones = []
         self.Slabels = ['Pgmax', 'Pgmin', 'Qgmax', 'Pd', 'Qd']
 
@@ -64,6 +68,9 @@ class EAindividual(object):
                 _v           = self.Z[i]
                 self.Z[i]    = self.Z[swap]
                 self.Z[swap] = _v
+
+    def add_id(self,i):
+        self.ind = i
 
     def solve(self,inputs,logging=None, parallel=False, parallel_zones=False, **kwargs):
         if logging is not None:
@@ -204,7 +211,11 @@ class EAindividual(object):
             beta = {}; gamma = {}
             for i, conn in enumerate(conns):
                 data = conn.recv()
+                if data is False:
+                    break
                 beta[i] = data['beta']; gamma[i] = data['gamma']
+            if data is False:
+                break
     
             ### calculate averages
             for i in beta:
@@ -227,6 +238,7 @@ class EAindividual(object):
     
             if logging is not None:
                 logging['log_iteration_summary'](beta_bar,gamma_bar, {'gap':gap, 'mean_diff':mean_diff, 'max_diff':max_diff}, logger=logging['logger'])
+                logging['log_iteration_summary'](beta_bar,gamma_bar, {'gap':gap, 'mean_diff':mean_diff, 'max_diff':max_diff}, ind=self.ind, iter=iter)
             ### check termination
             flag, msg = slv.termination(iter, {'gap':gap, 'mean_diff':mean_diff, 'max_diff':max_diff}, inputs['globals']['consts']['thresholds']) 
     
@@ -242,6 +254,18 @@ class EAindividual(object):
             for conn in conns:
                 conn.send({'beta_bar':beta_bar, 'gamma_bar': gamma_bar})
             iter += 1
+
+        # if any of the zones failed terminate all processes and restart after 
+        # randomly changing the Z permutation
+        if data is False:
+            lg.log_reset(self.ind)
+            for p in zones:
+                p.terminate()
+            for conn in conns:
+                conn.close()
+            self.Z = np.random.permutation(self.Z)
+            self.parsolve(inputs,logging=logging,**kwargs)
+            return
 
         ### receive S variables from zones (mod. of joint_s)
         self._S = {}
@@ -269,6 +293,9 @@ def parzone(locals, globals, zperm, zone, logging, kwargs, conn):
     while True:
         #### solve zone ####
         s.optimize(logger=logging['logger'],**kwargs)
+        if s.m.status not in [2,11,9]:
+            conn.send(False)
+            return
         with mlt.Lock():
             logging['log_iterations'](s,logger=logging['logger'], zone=zone)
         if kwargs.get('solck', False):
@@ -315,8 +342,8 @@ class EAgeneration(object):
         It is assumed that the same inputs were used to
         generate both generations
         """
-        if self.inputs is not b.inputs:
-            raise(BaseException("When adding generations they must have the same inputs"))
+        #if self.inputs is not b.inputs:
+        #    raise(BaseException("When adding generations they must have the same inputs"))
 
         if self.Psi is None:
             self.Psi = []
@@ -336,6 +363,23 @@ class EAgeneration(object):
         if self.Psi is None:
             self.Psi = []
         self.Psi.append(x)
+
+    def set_ind_id(self):
+        for i, psi in enumerate(self.Psi):
+            psi.add_id(i)
+
+    def split(self, N):
+        """ split generation into N copies, as equal as possible """
+        base_load = len(self.Psi)//int(N)
+        extra     = len(self.Psi) % N
+        out = []
+        for i in range(N):
+            out.append(EAgeneration(self.inputs))
+            out[-1].Psi = self.Psi[0:base_load]; del self.Psi[0:base_load]
+            if extra > 0:
+                out[-1].Psi.append(self.Psi.pop(0))
+                extra -= 1
+        return out
 
     def initialize_optimization(self, logging=None, res=0.1):
         T = len(self.Psi)
@@ -394,37 +438,102 @@ class EAgeneration(object):
         elif ftype == 'mpc':
             mmpc.savempc(_tmp, base_str + "mat", **kwargs)
     
-    def parallel_solve(self, psi, ind, conn, s):
+    def parallel_solve(self, psi, ind, conn, s, base):
         #psi = args[0]; ind = args[1]
         with s:
-            print('starting individual %d' %ind)
-            fname = hlp.savepath_replace(self.inputs['globals']['consts']['saving']['savename'], self.inputs['globals']['consts']['saving']['logpath']).split('.')[0] + "_ind" + str(ind) + ".log"
+            lg.log_parind(ind, start=True)
+            if base is None:
+                base = self.inputs['globals']['consts']['saving']['logpath']
+            fname = hlp.savepath_replace(self.inputs['globals']['consts']['saving']['savename'], base).split('.')[0] + "_ind" + str(ind) + ".log"
             logger = lg.logging_setup(fname=fname, logger='ind%d' %(ind), ret=True)
             lgslv = self.inputs['globals']['consts'].get("logging",None)
             try:
                 lgslv['logger'] = logger
             except TypeError:
                 pass
-            if not self.inputs['globals']['consts']['parallel_zones']:
+            if not self.inputs['globals']['consts']['parallel_opt']['parallel_zones']:
                 psi.initialize_zones(self.inputs)
-            psi.solve(self.inputs, logging=lgslv, parallel=True, parallel_zones=self.inputs['globals']['consts']['parallel_zones'], **self.inputs['globals']['consts']['solve_kwargs'])
-            print('Finished individual %d' %ind)
+            psi.solve(self.inputs, logging=lgslv, parallel=True, parallel_zones=self.inputs['globals']['consts']['parallel_opt']['parallel_zones'], **self.inputs['globals']['consts']['solve_kwargs'])
+            lg.log_parind(ind, start=False)
         conn.send(psi)
         #return psi
 
-    def parallel_wrap(self):
+    def parallel_wrap(self, logname=None):
         #p = mlt.Pool(min(5,len(self.Psi)))
+        if logname is not None:
+            lg.logging_setup(fname=logname)
+            logname = "/".join(logname.split('/')[:-1]) + '/'
         s = mlt.Semaphore(min(5,len(self.Psi)))
         conns = []
         jobs  = []
         for i, psi in enumerate(self.Psi):
+            try:
+                ind = psi.ind
+            except AttributeError:
+                ind = i
             parent_conn, child_conn = mlt.Pipe()
             conns.append(parent_conn)
-            jobs.append( mlt.Process( target=self.parallel_solve, args=(psi, i, child_conn, s), daemon=False ) )
+            jobs.append( mlt.Process( target=self.parallel_solve, args=(psi, ind, child_conn, s, logname), daemon=False ) )
 
         for j in jobs:
             j.start()
 
         for i, conn in enumerate(conns):
             self.Psi[i] = conn.recv()
-        #self.Psi = p.map(self.parallel_solve, zip(self.Psi[:], range(len(self.Psi))) )
+
+    def outsource(self,logfile=None):
+        """ - split up individuals into processes and pickle
+            - ssh into the workers in the list and start their process (possible run own process as well)
+            - wait until the data has been written i.e. all processes completed
+            - read in data, merge lists and return """
+        basepath = "/".join(os.path.realpath(__file__).split('/')[:-1]) + '/'
+        if logfile is not None:
+            if logfile[0] != '/':
+                _tmp = logfile.split('.')[0]
+                logfile = basepath + _tmp + '_'
+        workers   = self.inputs['globals']['consts']['parallel_opt']['workers']
+        dump_path = self.inputs['globals']['consts']['parallel_opt']['dump_path']
+        if dump_path[-1] != '/':
+            dump_path += '/'
+        if dump_path[0] != '/':
+            dump_path = basepath + dump_path
+
+        if 'self' in workers:
+            # make sure self is the last job
+            del workers[workers.index('self')]
+            workers.append('self')
+        self.set_ind_id() # set id so there won't be issues with logging files
+        parts = self.split(len(workers))
+        #### save pickle files
+        savenames = [dump_path + w + '.pkl' for w in workers if w != 'self']
+        for i, w in enumerate(workers):
+            if w != 'self':
+                pickle.dump(parts[i], open(savenames[i],'wb'))
+         
+        ### start subprocesses
+        proc = []
+        for i, w in enumerate(workers):
+            if w != 'self':
+                lg.log_outsource(w,parts[i],savenames[i])
+                proc.append(subprocess.Popen(["ssh", w, 'LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/opt/gurobi751/linux64/lib GRB_LICENSE_FILE=/opt/gurobi.lic', sys.executable, os.path.realpath(__file__), savenames[i], logfile + w + '.log']))
+                pass #start prosses
+            else:
+                parts[i].parallel_wrap()
+                self += parts[i]
+        ### wait for processes to exit
+        for i, p in enumerate(proc):
+            p.wait()
+            lg.log_outsource_wait(workers[i],p.returncode)
+
+        ### read in data
+        for i, w in enumerate(workers):
+            if w != 'self':
+                lg.log_outsource_collect(w)
+                self += pickle.load(open(savenames[i],'rb'))
+
+
+if __name__ == '__main__':
+    Psi = pickle.load(open(sys.argv[1],'rb'))
+    Psi.parallel_wrap(logname=sys.argv[2])
+    pickle.dump(Psi, open(sys.argv[1],'wb'))
+    sys.exit(0)

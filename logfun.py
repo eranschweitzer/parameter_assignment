@@ -226,11 +226,16 @@ def log_termination(msg, logger=None):
         logger.info("%s", part)
     logger.info('===============================')
 
-def log_iteration_summary(beta_bar,gamma_bar, ivals, logger=None):
+def log_iteration_summary(beta_bar,gamma_bar, ivals, ind=None, iter=None, logger=None):
     if logger is None:
         logger = logging.getLogger('root')
     logger.info('+++++++++++++++++++++++++++++++++++++++')
-    logger.info("Iteration summary:")
+    if ind is not None:
+        logger.info("Individual %d", ind)
+    if iter is not None:
+        logger.info("Iteration %d summary:", iter)
+    else:
+        logger.info("Iteration summary:")
     for k in ['gap','mean_diff', 'max_diff']:
         logger.info("%s: beta=%0.2f, gamma=%0.2f", k, ivals[k]['beta'], ivals[k]['gamma'])
     logger.info("Average Value statistics:")
@@ -263,6 +268,14 @@ def log_individual(i, start=True, logger=None):
         logger.info('-----------------')
         logger.info('Individual %d', i)
         logger.info('-----------------')
+            
+def log_parind(ind, start=False, logger=None):
+    if logger is None:
+        logger = logging.getLogger('root')
+    if start:
+        logger.info("\tIndividual %d: STARTING", ind)
+    else:
+        logger.info("\tIndividual %d: FINISHED", ind)
 
 def log_zones_split(pre=True, num=None, logger=None):
     if logger is None:
@@ -288,3 +301,26 @@ def log_calback_terminate(where, why, logger=None):
     if logger is None:
         logger = logging.getLogger('root')
     logger.info('      terminating in %s due to %s', where, why)
+
+def log_outsource(w,Psi,savename, logger=None):
+    if logger is None:
+        logger = logging.getLogger('root')
+    logger.info('Sending to %d indiduals to %s. Dumping to %s', len(Psi.Psi), w, savename) 
+def log_outsource_announce(workerlist, logger=None):
+    if logger is None:
+        logger = logging.getLogger('root')
+    workers = ', '.join(workerlist)
+    logger.info('Outsourcing work to workers: %s', workers)
+def log_outsource_collect(w,logger=None):
+    if logger is None:
+        logger = logging.getLogger('root')
+    logger.info('Collecting result from %s', w)
+def log_outsource_wait(worker, returncode, logger=None):
+    if logger is None:
+        logger = logging.getLogger('root')
+    logger.info('Work on %s terminated with code %s', worker, returncode)
+
+def log_reset(ind,logger=None):
+    if logger is None:
+        logger = logging.getLogger('root')
+    logger.info('Problem with solution for individual %s: Permuting Z and restarting', ind)

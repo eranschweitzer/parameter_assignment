@@ -45,8 +45,8 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Fa
                          'fname': 'debug/mymodel',
                          'rho_update': 'sqrt'}
     C['savempc'] = {'savempc': True, 'mpcpath': 'mpc/', 'expand_rate': True, 'vlim_precision': 2}
-    C['parallel'] = False
-    C['parallel_zones'] = False
+    C['parallel_opt'] = {'parallel':False, 'parallel_zones': False, 'workers': None, 'dump_path': 'pickle_data' }
+    C['gurobi_config'] = {'Threads': 60, 'MIPgap': 0.15, 'LogFile': '/tmp/GurobiMultivar.log', 'MIPFocus': 1}
     hlp.update_consts(C,fin)
 
     C['htheta'] = hlp.polyhedral_h(C['dmax'], C['phi_err'])
@@ -96,13 +96,16 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Fa
         Psi[1] = Psi[0].mutate(C['ea']['individuals'], pm=C['ea']['mutate_probability'])
         if debug:
             debug_dump(savename, Psi, i, timestamps['start'])
-        if not C['parallel']:
+        if not C['parallel_opt']['parallel']:
             Psi[1].initialize_optimization(logging=lg.log_optimization_init)
             for ind, psi in enumerate(Psi[1].iter()):
                 lg.log_individual(ind)
                 psi.solve(Psi[1].inputs,logging=lgslv, **C['solve_kwargs'])
-        else:
+        elif (C['parallel_opt']['workers'] is None) or (C['parallel_opt']['workers'] == 'self'):
             Psi[1].parallel_wrap()
+        else:
+            lg.log_outsource_announce(C['parallel_opt']['workers'])
+            Psi[1].outsource(logfile=logfile)
         Psi[0] += Psi[1]
         Psi[0].selection(C['ea']['ea_select'])
         lg.log_generation(i, Psi[0], start=False)
@@ -122,7 +125,11 @@ def parse_inputs(fname):
         for l in f:
             parts = l.strip().replace(' ' ,'').split(':')
             if len(parts) > 1:
-                out[parts[0]] = parts[1]
+                subparts = parts[1].split(',')
+                if len(subparts) > 1:
+                    out[parts[0]] = [p for p in subparts]
+                else:
+                    out[parts[0]] = parts[1]
     savename = out.pop('savename')
     fdata    = out.pop('fdata')
     return savename, fdata, out

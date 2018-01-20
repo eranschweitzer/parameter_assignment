@@ -103,15 +103,20 @@ class ZoneMILP(object):
         self.consts = consts
 
         self.m = gb.Model()
-        self.m.setParam('LogFile','/tmp/GurobiMultivar.log')
+        #self.m.setParam('LogFile','/tmp/GurobiMultivar.log')
+        self.m.setParam('LogFile', consts['gurobi_config']['LogFile'])
         self.m.setParam('LogToConsole',0)
-        self.m.setParam('MIPGap',0.15)
         #m.setParam('SolutionLimit',1) #stop after this many solutions are found
         #self.m.setParam('TimeLimit', 1500)
-        self.m.setParam('MIPFocus',1)
+        #self.m.setParam('MIPFocus',1)
+        #self.m.setParam('Threads',60)
+        #self.m.setParam('MIPGap',0.15)
         self.m.setParam('IntFeasTol', 1e-6)
         self.m.setParam('ImproveStartTime',60)
-        self.m.setParam('Threads',60)
+        
+        for key, value in consts['gurobi_config'].items():
+            if key != 'LogFile':
+                self.m.setParam(key, value)
    
         self.m._pload = sum(params['S']['Pd'])/100
         #############
@@ -204,6 +209,8 @@ class ZoneMILP(object):
 
         # minimum loss constraint
         self.m.addConstr( self.Pg.sum("*") + sum(self.beta[i] for _,j in ebound_map['in'].items() for i in j) - sum(self.beta[i] for _,j in ebound_map['out'].items() for i in j) >= self.m._pload*(1/(1-consts['lossmin'])) ) 
+        # var generation plus import PLUS export should be positive. Idea is to not let generators only absorb vars
+        self.m.addConstr( self.Qg.sum("*") + sum(self.gamma[i] for _,j in ebound_map['in'].items() for i in j) + sum(self.gamma[i] for _,j in ebound_map['out'].items() for i in j) >= 0 )
         
         # edge constraints
         for _n1,_n2,_l in G.edges_iter(data='id'):
@@ -291,7 +298,7 @@ class ZoneMILP(object):
                 w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
                 for k,v in w.items():
                     w[k] = max(v*scale,v)
-                w['phi'] = max(w.values())
+                w['phi'] = 1.0
                 return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") \
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") \
                         + w['beta']*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")) 
@@ -300,7 +307,7 @@ class ZoneMILP(object):
                 w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
                 for k,v in w.items():
                     w[k] = max(v*scale,v)
-                w['phi'] = max(w.values())
+                w['phi'] = 1.0
                 return self.Pg.sum('*') + w['phi']*self.phi.sum('*') \
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") \
                         + w['beta']*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")) 
@@ -410,7 +417,7 @@ class ZoneMILP(object):
                 w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
                 for k,v in w.items():
                     w[k] = max(v*scale,v)
-                w['phi'] = max(w.values())
+                w['phi'] = 1.0
                 return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") \
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*")
         else:
@@ -418,7 +425,7 @@ class ZoneMILP(object):
                 w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
                 for k,v in w.items():
                     w[k] = max(v*scale,v)
-                w['phi'] = max(w.values())
+                w['phi'] = 1.0
                 return self.Pg.sum('*') + w['phi']*self.phi.sum('*') \
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") 
         self.obj = obj
