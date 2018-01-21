@@ -186,12 +186,16 @@ def log_iterations(s,pre=False,print_boundary=False, logger=None, zone=None):
             auglag_err = s.auglag_error()
         except:
             auglag_err = None
+        try:
+            Qgslack = s.Qgslack.X
+        except:
+            Qgslack = 0
         if zone is None:
             logger.info("Solved with status %s (%d), objective=%0.3f", model_status(s.m), s.m.status, s.m.objVal)
         else:
             logger.info("(zone %d) Solved with status %s (%d), objective=%0.3f", zone, model_status(s.m), s.m.status, s.m.objVal)
         logger.info("\tgeneration: %0.3g MW, load: %0.3g MW, import: %0.3g MW, export: %0.3g MW", Pg*100, s.m._pload*100, in_sum*100, out_sum*100)
-        logger.info("\tgeneration: %0.3g MVAr, load: %0.3g MVar, import: %0.3g MVAr, export: %0.3g MVAr", Qg*100, Qd*100, in_sum2*100, out_sum2*100)
+        logger.info("\tgeneration: %0.3g MVAr, load: %0.3g MVar, import: %0.3g MVAr, export: %0.3g MVAr, Qglsack: %0.3g", Qg*100, Qd*100, in_sum2*100, out_sum2*100, Qgslack)
         logger.info("\tphi error (max, min): %0.3g, %0.3g", max(phi_err), min(phi_err))
         if auglag_err is not None:
             logger.info("\tAug. Lagrangian polyhedral relaxation error (beta, gamma) max/min: %0.3g/%0.3g, %0.3g/%0.3g", \

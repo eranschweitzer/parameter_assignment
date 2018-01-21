@@ -99,6 +99,8 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
     logger.info('+++++++++++++++++++++++++++++++')
     logger.info('Total load: %0.4f MW, Total gen: %0.4f MW' ,100*sum(data['Pd']),100*sum(data['Pg']))
     logger.info('Total load: %0.4f MVar, Total gen: %0.4f MVar' ,100*sum(data['Qd']),100*sum(data['Qg']))
+    if 'Qgslack' in data:
+        logger.info('Slack to make sum(Qg) > 0: %0.3g', data['Qgslack'])
     if ebound_map is not None:
         logger.info('Total imports/exports (+/-): %0.4f MW, %0.4f MVAr', 100*beta.sum(), 100*gamma.sum())
     logger.info('Losses [MW]: %0.3g, %0.3f%%' ,100*(sum(data['Pg'] + beta - data['Pd'])), 100*sum(data['Pg'] + beta - data['Pd'])/sum(data['Pd']))

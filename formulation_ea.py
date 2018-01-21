@@ -134,6 +134,7 @@ class ZoneMILP(object):
         self.Qd    = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="Qd")
         self.Pg    = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="Pg")
         self.Qg    = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="Qg")
+        self.Qgslack = self.m.addVar(lb=0, name="Qgslack")
 
         if Ngsh > 0:
             self.Psh = self.m.addVars(N,lb=params['S']['shunt']['min'][0],ub=params['S']['shunt']['max'][0])
@@ -210,7 +211,7 @@ class ZoneMILP(object):
         # minimum loss constraint
         self.m.addConstr( self.Pg.sum("*") + sum(self.beta[i] for _,j in ebound_map['in'].items() for i in j) - sum(self.beta[i] for _,j in ebound_map['out'].items() for i in j) >= self.m._pload*(1/(1-consts['lossmin'])) ) 
         # var generation plus import PLUS export should be positive. Idea is to not let generators only absorb vars
-        self.m.addConstr( self.Qg.sum("*") + sum(self.gamma[i] for _,j in ebound_map['in'].items() for i in j) + sum(self.gamma[i] for _,j in ebound_map['out'].items() for i in j) >= 0 )
+        self.m.addConstr( self.Qg.sum("*") + self.Qgslack >= 0 )
         
         # edge constraints
         for _n1,_n2,_l in G.edges_iter(data='id'):
@@ -295,20 +296,20 @@ class ZoneMILP(object):
         ###############
         if Nbsh > 0:
             def obj(scale=1):
-                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
+                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
                 for k,v in w.items():
                     w[k] = max(v*scale,v)
-                w['phi'] = 1.0
-                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") \
+                w['phi'] = max(w.values())
+                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") + w['Qgslack']*self.Qgslack\
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") \
                         + w['beta']*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")) 
         else:
             def obj(scale=1):
-                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
+                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
                 for k,v in w.items():
                     w[k] = max(v*scale,v)
-                w['phi'] = 1.0
-                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') \
+                w['phi'] = max(w.values())
+                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + w['Qgslack']*self.Qgslack\
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") \
                         + w['beta']*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")) 
         self.obj = obj
@@ -414,19 +415,19 @@ class ZoneMILP(object):
 
         if self.Nbsh > 0:
             def obj(scale=1):
-                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
+                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
                 for k,v in w.items():
                     w[k] = max(v*scale,v)
-                w['phi'] = 1.0
-                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") \
+                w['phi'] = max(w.values())
+                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") + w['Qgslack']*self.Qgslack\
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*")
         else:
             def obj(scale=1):
-                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2}
+                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
                 for k,v in w.items():
                     w[k] = max(v*scale,v)
-                w['phi'] = 1.0
-                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') \
+                w['phi'] = max(w.values())
+                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + w['Qgslack']*self.Qgslack\
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") 
         self.obj = obj
 
@@ -518,6 +519,7 @@ class ZoneMILP(object):
         vars['sf']    = hlp.var2mat(self.sf,  self.L)
         vars['su']    = hlp.var2mat(self.su,  self.N)
         vars['sd']    = hlp.var2mat(self.sd,  self.L)
+        vars['Qgslack'] = self.Qgslack.X
         vars['theta'] = hlp.var2mat(self.theta, self.N)
         vars['u']     = hlp.var2mat(self.u, self.N)
         vars['phi']   = hlp.var2mat(self.phi,self.L)

@@ -166,13 +166,17 @@ class EAindividual(object):
         self.vars = {}
         _vars = self.opt.getvars()
         for k,v in _vars.items():
-            self.vars[k] = np.empty(v.shape[0])
-            if v.shape[0] == self.opt.N:
-                self.vars[k][self.opt.rnmap] = _vars[k]
-            elif v.shape[0] == self.opt.L:
-                self.vars[k][self.opt.rlmap] = _vars[k]
-            else:
-                raise(ValueError("Inocrrect vector shape. key: %s" %(k)))
+            try:
+                self.vars[k] = np.empty(v.shape[0])
+                if v.shape[0] == self.opt.N:
+                    self.vars[k][self.opt.rnmap] = _vars[k]
+                elif v.shape[0] == self.opt.L:
+                    self.vars[k][self.opt.rlmap] = _vars[k]
+                else:
+                    raise(ValueError("Inocrrect vector shape. key: %s" %(k)))
+            except AttributeError:
+                #should be if v is a float/integer i.e, not an np.array
+                self.vars[k] = v
         ### add power inputs if they were not optimization variables.
         for l in self.Slabels:
             if l not in self.vars:
