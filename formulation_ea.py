@@ -273,12 +273,12 @@ class ZoneMILP(object):
 
         ###### shunts ##############
         if Ngsh > 0:
-            self.m.addConstrs( self.Psh[i] >= self.gsh[i]*consts['S']['shunt']['min'][0] for i in range(N))
-            self.m.addConstrs( self.Psh[i] <= self.gsh[i]*consts['S']['shunt']['max'][0] for i in range(N))
+            self.m.addConstrs( self.Psh[i] >= self.gsh[i]*params['S']['shunt']['min'][0] for i in range(N))
+            self.m.addConstrs( self.Psh[i] <= self.gsh[i]*params['S']['shunt']['max'][0] for i in range(N))
             self.m.addConstr(  self.gsh.sum('*') <= Ngsh )
         if Nbsh > 0:
-            self.m.addConstrs( self.Qsh[i] >= self.bsh[i]*consts['S']['shunt']['min'][1] for i in range(N))
-            self.m.addConstrs( self.Qsh[i] <= self.bsh[i]*consts['S']['shunt']['max'][1] for i in range(N))
+            self.m.addConstrs( self.Qsh[i] >= self.bsh[i]*params['S']['shunt']['min'][1] for i in range(N))
+            self.m.addConstrs( self.Qsh[i] <= self.bsh[i]*params['S']['shunt']['max'][1] for i in range(N))
             self.m.addConstr(  self.bsh.sum('*') <= Nbsh )
             self.m.addConstrs( self.Qsh[i] - self.Qshp[i] <= 0 for i in range(N))
             self.m.addConstrs( self.Qsh[i] + self.Qshn[i] >= 0 for i in range(N))
@@ -527,6 +527,8 @@ class ZoneMILP(object):
             vars['GS']= hlp.var2mat(self.Psh,self.N)
         if self.Nbsh > 0:
             vars['BS']= hlp.var2mat(self.Qsh,self.N)
+            vars['BSp']=hlp.var2mat(self.Qshp,self.N)
+            vars['BSn']=hlp.var2mat(self.Qshn,self.N)
         if includez:
             ### add branch variables
             for k,v in self.z.items():

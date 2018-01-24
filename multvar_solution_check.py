@@ -68,6 +68,8 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
         data['GS'] = 0
     if 'BS' not in data:
         data['BS'] = 0
+    else:
+        bs_abs = np.abs(data['BS']) - (data['BSp'] + data['BSn'])
     balance = {}
     balance['P'] = data['Pg'] - data['GS'] - data['Pd'] - Pfn - Ptn + beta
     balance['Q'] = data['Qg'] + data['BS'] - data['Qd'] - Qfn - Qtn + gamma
@@ -131,6 +133,7 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
         logger.info('\tNumber of Bsh: %d', sum(data['BS'] != 0))
         if np.any(data['BS'] != 0):
             logger.info('\tBS (min, max): %0.3f, %0.3f', min(data['BS'][data['BS'] != 0]), max(data['BS'][data['BS'] != 0]))
+            logger.info('\tMax error in |BS| constraints: %0.3g', max(abs(bs_abs)))
     else:
         logger.info('\tNo Bsh')
     logger.info('Slacks:')
