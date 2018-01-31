@@ -8,7 +8,7 @@ import multvar_init as mvinit
 import ea_init as init
 import logfun as lg
 
-def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=False, actual_vars_d=False, actual_vars_g=True, actual_vars_z=True, debug=False, logfile=None, **kwargs):
+def main(savename, fdata, topology=None, Nmax=400, Nmin=50, include_shunts=False, const_rate=False, actual_vars_d=False, actual_vars_g=True, actual_vars_z=True, debug=False, logfile=None, **kwargs):
 
     fin = locals().copy()
     del fin['savename']; del fin['fdata']; del fin['kwargs']
@@ -29,6 +29,7 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Fa
     include_shunts= include_shunts in truelist
     const_rate    = const_rate in truelist
     debug         = debug in truelist
+    topology      = hlp.none_test(topology)
 
     ##### Define Constants ###############
     C = hlp.def_consts() 
@@ -47,6 +48,7 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Fa
     C['savempc'] = {'savempc': True, 'mpcpath': 'mpc/', 'expand_rate': True, 'vlim_precision': 2}
     C['parallel_opt'] = {'parallel':False, 'parallel_zones': False, 'workers': None, 'dump_path': 'pickle_data' }
     C['gurobi_config'] = {'Threads': 60, 'MIPgap': 0.15, 'LogFile': '/tmp/GurobiMultivar.log', 'MIPFocus': 1}
+    C['random_solve'] = False
     hlp.update_consts(C,fin)
 
     C['htheta'] = hlp.polyhedral_h(C['dmax'], C['phi_err'])
@@ -63,9 +65,15 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Fa
     resd,resg,resf = ftin.multivariate_power(bus_data, gen_data, actual_vars_d=actual_vars_d, actual_vars_g=actual_vars_g, include_shunts=include_shunts)
 
     #### Get Topology ########
-    G = mvinit.topology(bus_data,branch_data)
+    if topology is None:
+        G = mvinit.topology(bus_data,branch_data)
+    else:
+        G = mvinit.topology_generator(type=topology,**fin) 
     N = G.number_of_nodes()
     L = G.number_of_edges()
+    if C['random_solve']:
+        Nmax = N
+        C['ea']['generations'] = 1
     lg.log_topology(N,L,Nmax,Nmin)
 
     ### Split Into Zones #####
@@ -123,6 +131,8 @@ def parse_inputs(fname):
     out = {}
     with open(fname,'r') as f:
         for l in f:
+            if l[0] == '#':
+                continue
             parts = l.strip().replace(' ' ,'').split(':')
             if len(parts) > 1:
                 subparts = parts[1].split(',')

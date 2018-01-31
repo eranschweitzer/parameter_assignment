@@ -65,7 +65,7 @@ def log_function_inputs(savename,fdata,logger=None, **kwargs):
 def log_topology(N,L,Nmax,Nmin, logger=None):
     if logger is None:
         logger = logging.getLogger('root')
-    logger.info('Number of buses: %d, Number of branches: %d, Nmax: %d, Nmin: %d',N,L,Nmax,Nmin)
+    logger.info('Number of buses: %d, Number of branches: %d, Avg. Deg (2L/N): %0.2f, Nmax: %d, Nmin: %d',N, L, 2*L/N, Nmax, Nmin)
 
 def log_power_samples(S, logger=None):
     if logger is None:
@@ -173,27 +173,34 @@ def log_iterations(s,pre=False,print_boundary=False, logger=None, zone=None):
     if pre:
         logger.info('##### Solving Zone %d ########', s)
     else:
-        in_sum   = sum(s.beta[i].X for _,j in s.m._ebound_map['in'].items()  for i in j)
-        out_sum  = sum(s.beta[i].X for _,j in s.m._ebound_map['out'].items() for i in j)
-        in_sum2  = sum(s.gamma[i].X for _,j in s.m._ebound_map['in'].items()  for i in j)
-        out_sum2 = sum(s.gamma[i].X for _,j in s.m._ebound_map['out'].items() for i in j)
-        Pg       = sum(s.Pg[i].X for i in s.Pg )
-        Qg       = sum(s.Qg[i].X for i in s.Qg )
-        Qd       = sum(s.Qd[i].X for i in s.Qd )
-        Losses   = (Pg - s.m._pload + in_sum - out_sum)/(Pg + in_sum - out_sum)
-        phi_err  = s.phi_error()
         try:
-            auglag_err = s.auglag_error()
-        except:
-            auglag_err = None
-        try:
-            Qgslack = s.Qgslack.X
-        except:
-            Qgslack = 0
-        if zone is None:
-            logger.info("Solved with status %s (%d), objective=%0.3f", model_status(s.m), s.m.status, s.m.objVal)
-        else:
-            logger.info("(zone %d) Solved with status %s (%d), objective=%0.3f", zone, model_status(s.m), s.m.status, s.m.objVal)
+            if zone is None:
+                logger.info("Solved with status %s (%d), objective=%0.3f", model_status(s.m), s.m.status, s.m.objVal)
+            else:
+                logger.info("(zone %d) Solved with status %s (%d), objective=%0.3f", zone, model_status(s.m), s.m.status, s.m.objVal)
+            in_sum   = sum(s.beta[i].X for _,j in s.m._ebound_map['in'].items()  for i in j)
+            out_sum  = sum(s.beta[i].X for _,j in s.m._ebound_map['out'].items() for i in j)
+            in_sum2  = sum(s.gamma[i].X for _,j in s.m._ebound_map['in'].items()  for i in j)
+            out_sum2 = sum(s.gamma[i].X for _,j in s.m._ebound_map['out'].items() for i in j)
+            Pg       = sum(s.Pg[i].X for i in s.Pg )
+            Qg       = sum(s.Qg[i].X for i in s.Qg )
+            Qd       = sum(s.Qd[i].X for i in s.Qd )
+            Losses   = (Pg - s.m._pload + in_sum - out_sum)/(Pg + in_sum - out_sum)
+            phi_err  = s.phi_error()
+            try:
+                auglag_err = s.auglag_error()
+            except:
+                auglag_err = None
+            try:
+                Qgslack = s.Qgslack.X
+            except:
+                Qgslack = 0
+        except AttributeError:
+            if zone is None:
+                logger.info("Solved with status %s (%d)", model_status(s.m), s.m.status)
+            else:
+                logger.info("(zone %d) Solved with status %s (%d)", zone, model_status(s.m), s.m.status)
+            return
         logger.info("\tgeneration: %0.3g MW, load: %0.3g MW, import: %0.3g MW, export: %0.3g MW", Pg*100, s.m._pload*100, in_sum*100, out_sum*100)
         logger.info("\tgeneration: %0.3g MVAr, load: %0.3g MVar, import: %0.3g MVAr, export: %0.3g MVAr, Qglsack: %0.3g", Qg*100, Qd*100, in_sum2*100, out_sum2*100, Qgslack)
         logger.info("\tphi error (max, min): %0.3g, %0.3g", max(phi_err), min(phi_err))

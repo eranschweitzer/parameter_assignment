@@ -47,12 +47,31 @@ class EAindividual(object):
         self.vars = None
         self.ind  = None
         self.zones = []
-        self.Slabels = ['Pgmax', 'Pgmin', 'Qgmax', 'Pd', 'Qd']
+        self.Slabels = ['Pgmax', 'Pgmin', 'Qgmax', 'Pd', 'Qd', 'BS', 'GS']
 
     def initialize_zones(self, inputs):
         ### initalize zones
-        for i,v in enumerate(inputs['locals']):
-            self.zones.append(EAzone(v, inputs['globals'], self.Z, zone=i))
+        if not inputs['globals']['consts']['random_solve']:
+            for i,v in enumerate(inputs['locals']):
+                self.zones.append(EAzone(v, inputs['globals'], self.Z, zone=i))
+        else:
+            assert len(inputs['locals']) == 1
+            N = len(inputs['locals'][0]['S']['Pgmax'])
+            nperm = np.random.permutation(N)
+            self._S = {}
+            #### initialize empty arrays of size N
+            for l in self.Slabels:
+                try:
+                    self._S[l] = inputs['locals'][0]['S'][l][nperm]
+                except KeyError:
+                    pass
+            ### copy the rest of keys of S that are not already in vars
+            for k,v in inputs['locals'][0]['S'].items():
+                if k not in self._S:
+                    self._S[k] = v
+            
+            self.zones.append(fm.ZoneMILP(inputs['globals']['G'], inputs['globals']['consts'], {'z':inputs['globals']['z'], 'S': self._S}, self.Z, zone=0, nperm=True, ind=self.ind))
+                
     
     def copy(self):
         return EAindividual(self.Z.shape[0], Z=self.Z)
@@ -108,6 +127,8 @@ class EAindividual(object):
                 beta_bar, gamma_bar, ivals = slv.solve(self.zones, inputs['globals']['e2z'],logging=log_iterations, logger=logging['logger'], **kwargs)
                 if logging is not None:
                     logging['log_iteration_summary'](beta_bar,gamma_bar, ivals, logger=logging['logger'])
+                    if logging['logger'] is not None:
+                        logging['log_iteration_summary'](beta_bar,gamma_bar, ivals, ind=self.ind, iter=i)
                 flag,msg = slv.termination(i, ivals, inputs['globals']['consts']['thresholds'])
                 if flag:
                     if logging is not None:
@@ -125,8 +146,9 @@ class EAindividual(object):
             if logging is not None:
                 logging['log_single_system'](self.opt, start=False, logger=logging['logger'])
         self.set_f()
-        self.set_vars(inputs['globals']['z']) 
-        self.sol_check(G=inputs['globals']['G'], logger=logging['logger'])
+        if self.f < np.inf:
+            self.set_vars(inputs['globals']['z']) 
+            self.sol_check(G=inputs['globals']['G'], logger=logging['logger'])
         if parallel:
             self.cleanup()
 
@@ -137,7 +159,12 @@ class EAindividual(object):
         ## set nodal variables
         if calcS:
             self.joint_s(inputs['globals']['G'].number_of_nodes())
-        self.opt = fm.ZoneMILP(inputs['globals']['G'], inputs['globals']['consts'], {'z':inputs['globals']['z'], 'S': self._S}, self.Z, nperm=True)
+        rmlabels = set()
+        for k in self.Slabels:
+            if k not in self._S:
+                rmlabels.add(k)
+        self.Slabels = [l for l in self.Slabels if l not in rmlabels]
+        self.opt = fm.ZoneMILP(inputs['globals']['G'], inputs['globals']['consts'], {'z':inputs['globals']['z'], 'S': self._S}, self.Z, nperm=True, ind=self.ind)
         self.opt.optimize(logger=logger)
 
     def joint_s(self, N):
@@ -146,6 +173,7 @@ class EAindividual(object):
         for l in self.Slabels:
             self._S[l] = np.empty(N)
         ### populate arrays with placed values from zones
+        del_list = set()
         for i,zone in enumerate(self.zones):
             _v = zone.getvars(Sonly=True)
             for k in self._S:
@@ -153,18 +181,35 @@ class EAindividual(object):
                     mult = 100
                 else:
                     mult = 1
-                self._S[k][zone.rnmap] = _v[k]*mult
+                try:
+                    self._S[k][zone.rnmap] = _v[k]*mult
+                except KeyError as err:
+                    if k in ['BS', 'GS']:
+                        del_list.add(k)
+                        continue
+                    else:
+                        raise(err)
+        for k in del_list:
+            del self._S[k]
         ### copy the rest of keys of S that are not already in vars
         for k,v in self.zones[0].S.items():
             if k not in self._S:
                 self._S[k] = v
 
     def set_f(self):
-        self.f = self.opt.objective
+        try:
+            self.f = self.opt.objective
+        except AttributeError:
+            self.f = np.inf
+            return
     
     def set_vars(self, z):
         self.vars = {}
-        _vars = self.opt.getvars()
+        try:
+            _vars = self.opt.getvars()
+        except AttributeError:
+            self.vars = None
+            return
         for k,v in _vars.items():
             try:
                 self.vars[k] = np.empty(v.shape[0])
@@ -180,7 +225,11 @@ class EAindividual(object):
         ### add power inputs if they were not optimization variables.
         for l in self.Slabels:
             if l not in self.vars:
-                self.vars[l] = self._S[l]
+                try: 
+                    self.vars[l] = self._S[l]
+                except KeyError:
+                    ### should be here if l= "BS" or "GS" and these are not in self._S[l]
+                    pass
         ### add branch variables
         for k,v in z.items():
             try:
@@ -276,6 +325,7 @@ class EAindividual(object):
         #### initialize empty arrays of size N
         for l in self.Slabels:
             self._S[l] = np.empty(inputs['globals']['G'].number_of_nodes())
+        del_list = set()
         for i, conn in enumerate(conns):
             data = conn.recv()
             for k in self._S:
@@ -283,8 +333,17 @@ class EAindividual(object):
                     mult = 100
                 else:
                     mult = 1
-                self._S[k][data['rnmap']] = data['S'][k]*mult
+                try:
+                    self._S[k][data['rnmap']] = data['S'][k]*mult
+                except KeyError as err:
+                    if k in ['GS', 'BS']:
+                        del_list.add(k)
+                        continue
+                    else:
+                        raise(err)
             conn.close()
+        for k in del_list:
+            del self._S[k]
         ### copy the rest of keys of S that are not already in vars
         for k,v in inputs['locals'][0]['S'].items():
             if k not in self._S:
@@ -455,7 +514,7 @@ class EAgeneration(object):
                 lgslv['logger'] = logger
             except TypeError:
                 pass
-            if not self.inputs['globals']['consts']['parallel_opt']['parallel_zones']:
+            if (not self.inputs['globals']['consts']['parallel_opt']['parallel_zones']) or (self.inputs['globals']['consts']['random_solve']):
                 psi.initialize_zones(self.inputs)
             psi.solve(self.inputs, logging=lgslv, parallel=True, parallel_zones=self.inputs['globals']['consts']['parallel_opt']['parallel_zones'], **self.inputs['globals']['consts']['solve_kwargs'])
             lg.log_parind(ind, start=False)
@@ -471,13 +530,10 @@ class EAgeneration(object):
         conns = []
         jobs  = []
         for i, psi in enumerate(self.Psi):
-            try:
-                ind = psi.ind
-            except AttributeError:
-                ind = i
+            psi.add_id(i)
             parent_conn, child_conn = mlt.Pipe()
             conns.append(parent_conn)
-            jobs.append( mlt.Process( target=self.parallel_solve, args=(psi, ind, child_conn, s, logname), daemon=False ) )
+            jobs.append( mlt.Process( target=self.parallel_solve, args=(psi, psi.ind, child_conn, s, logname), daemon=False ) )
 
         for j in jobs:
             j.start()
@@ -534,6 +590,7 @@ class EAgeneration(object):
             if w != 'self':
                 lg.log_outsource_collect(w)
                 self += pickle.load(open(savenames[i],'rb'))
+
 
 
 if __name__ == '__main__':

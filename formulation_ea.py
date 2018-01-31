@@ -53,7 +53,7 @@ def mycallback2(model,where):
         pass
 
 class ZoneMILP(object):
-    def __init__(self,G,consts,params,zperm,ebound=None,ebound_map=None,nperm=False, zone=0):
+    def __init__(self,G,consts,params,zperm,ebound=None,ebound_map=None,nperm=False, zone=0, ind=None):
         
         if ebound is None:
             ebound = []
@@ -104,7 +104,11 @@ class ZoneMILP(object):
 
         self.m = gb.Model()
         #self.m.setParam('LogFile','/tmp/GurobiMultivar.log')
-        self.m.setParam('LogFile', consts['gurobi_config']['LogFile'])
+        if ind is not None:
+            parts = consts['gurobi_config']['LogFile'].split('.')
+            self.m.setParam('LogFile', parts[0] + '_ind' + str(ind) + '.' + parts[1])
+        else:
+            self.m.setParam('LogFile', consts['gurobi_config']['LogFile'])
         self.m.setParam('LogToConsole',0)
         #m.setParam('SolutionLimit',1) #stop after this many solutions are found
         #self.m.setParam('TimeLimit', 1500)
@@ -136,16 +140,32 @@ class ZoneMILP(object):
         self.Qg    = self.m.addVars(N,lb=-gb.GRB.INFINITY, name="Qg")
         self.Qgslack = self.m.addVar(lb=0, name="Qgslack")
 
+        GSincluded = False
         if Ngsh > 0:
             self.Psh = self.m.addVars(N,lb=params['S']['shunt']['min'][0],ub=params['S']['shunt']['max'][0])
-            self.gsh = self.m.addVars(N,vtype=gb.GRB.BINARY)
+            if "GS" in params['S']:
+                GSincluded = True
+                for i in self.Psh.keys():
+                    if np.abs(params['S']['GS'][rnmap[i]]) < 1e-5:
+                        self.Psh[i].ub = 0; self.Psh[i].lb = 0
+            else:
+                self.gsh = self.m.addVars(N,vtype=gb.GRB.BINARY)
         else:
             self.Psh = np.zeros(N)
+        BSincluded = False
         if Nbsh > 0:
             self.Qsh = self.m.addVars(N,lb=params['S']['shunt']['min'][1],ub=params['S']['shunt']['max'][1])
             self.Qshp= self.m.addVars(N,lb=0,ub=params['S']['shunt']['max'][1])
             self.Qshn= self.m.addVars(N,lb=0,ub=params['S']['shunt']['max'][1])
-            self.bsh = self.m.addVars(N,vtype=gb.GRB.BINARY)
+            if "BS" in params['S']:
+                BSincluded = True
+                for i in self.Qsh.keys():
+                    if np.abs(params['S']['BS'][rnmap[i]]) < 1e-5:
+                        self.Qsh[i].ub = 0; self.Qsh[i].lb = 0
+                        self.Qshp[i].ub= 0; self.Qshp[i].lb= 0
+                        self.Qshn[i].ub= 0; self.Qshn[i].lb= 0
+            else:
+                self.bsh = self.m.addVars(N,vtype=gb.GRB.BINARY)
         else:
             self.Qsh = np.zeros(N)
         #self.Pf    = self.m.addVars(L,lb=-consts['fmax'], ub=consts['fmax'], name="Pf")
@@ -156,6 +176,9 @@ class ZoneMILP(object):
         self.Pt    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Pt")
         self.Qf    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qf")
         self.Qt    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qt")
+
+        self.Qfabs = self.m.addVars(L, name="Qfabs")
+        self.Qtabs = self.m.addVars(L, name="Qtabs")
 
         # slacks
         self.sf    = self.m.addVars(L,lb=0, ub=0.5*consts['fmax'], name="sf") # flow limit slack
@@ -212,6 +235,11 @@ class ZoneMILP(object):
         self.m.addConstr( self.Pg.sum("*") + sum(self.beta[i] for _,j in ebound_map['in'].items() for i in j) - sum(self.beta[i] for _,j in ebound_map['out'].items() for i in j) >= self.m._pload*(1/(1-consts['lossmin'])) ) 
         # var generation plus import PLUS export should be positive. Idea is to not let generators only absorb vars
         self.m.addConstr( self.Qg.sum("*") + self.Qgslack >= 0 )
+        # absolute value of reactive power flow
+        self.m.addConstrs( self.Qfabs[i] + self.Qf[i] >= 0 for i in range(L))
+        self.m.addConstrs( self.Qfabs[i] - self.Qf[i] >= 0 for i in range(L))
+        self.m.addConstrs( self.Qtabs[i] + self.Qt[i] >= 0 for i in range(L))
+        self.m.addConstrs( self.Qtabs[i] - self.Qt[i] >= 0 for i in range(L))
         
         # edge constraints
         for _n1,_n2,_l in G.edges_iter(data='id'):
@@ -272,14 +300,15 @@ class ZoneMILP(object):
                 sum( self.gamma[l] for l in ebound_map['out'].get(rnmap[i],[]) ) == 0 for i in range(N)) 
 
         ###### shunts ##############
-        if Ngsh > 0:
+        if (Ngsh > 0) and not GSincluded:
             self.m.addConstrs( self.Psh[i] >= self.gsh[i]*params['S']['shunt']['min'][0] for i in range(N))
             self.m.addConstrs( self.Psh[i] <= self.gsh[i]*params['S']['shunt']['max'][0] for i in range(N))
             self.m.addConstr(  self.gsh.sum('*') <= Ngsh )
         if Nbsh > 0:
-            self.m.addConstrs( self.Qsh[i] >= self.bsh[i]*params['S']['shunt']['min'][1] for i in range(N))
-            self.m.addConstrs( self.Qsh[i] <= self.bsh[i]*params['S']['shunt']['max'][1] for i in range(N))
-            self.m.addConstr(  self.bsh.sum('*') <= Nbsh )
+            if not BSincluded:
+                self.m.addConstrs( self.Qsh[i] >= self.bsh[i]*params['S']['shunt']['min'][1] for i in range(N))
+                self.m.addConstrs( self.Qsh[i] <= self.bsh[i]*params['S']['shunt']['max'][1] for i in range(N))
+                self.m.addConstr(  self.bsh.sum('*') <= Nbsh )
             self.m.addConstrs( self.Qsh[i] - self.Qshp[i] <= 0 for i in range(N))
             self.m.addConstrs( self.Qsh[i] + self.Qshn[i] >= 0 for i in range(N))
 
@@ -301,6 +330,7 @@ class ZoneMILP(object):
                     w[k] = max(v*scale,v)
                 w['phi'] = max(w.values())
                 return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") + w['Qgslack']*self.Qgslack\
+                        + self.Qfabs.sum("*") + self.Qtabs.sum("*")\
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") \
                         + w['beta']*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")) 
         else:
@@ -310,6 +340,7 @@ class ZoneMILP(object):
                     w[k] = max(v*scale,v)
                 w['phi'] = max(w.values())
                 return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + w['Qgslack']*self.Qgslack\
+                        + self.Qfabs.sum("*") + self.Qtabs.sum("*")\
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") \
                         + w['beta']*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")) 
         self.obj = obj
@@ -420,6 +451,7 @@ class ZoneMILP(object):
                     w[k] = max(v*scale,v)
                 w['phi'] = max(w.values())
                 return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") + w['Qgslack']*self.Qgslack\
+                        + self.Qfabs.sum("*") + self.Qtabs.sum("*")\
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*")
         else:
             def obj(scale=1):
@@ -428,6 +460,7 @@ class ZoneMILP(object):
                     w[k] = max(v*scale,v)
                 w['phi'] = max(w.values())
                 return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + w['Qgslack']*self.Qgslack\
+                        + self.Qfabs.sum("*") + self.Qtabs.sum("*")\
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") 
         self.obj = obj
 
@@ -510,6 +543,10 @@ class ZoneMILP(object):
         vars['Qd']    = hlp.var2mat(self.Qd, self.N)
         vars['Pg']    = hlp.var2mat(self.Pg, self.N)
         vars['Qg']    = hlp.var2mat(self.Qg, self.N)
+        if self.Ngsh > 0:
+            vars['GS']= hlp.var2mat(self.Psh,self.N)
+        if self.Nbsh > 0:
+            vars['BS']= hlp.var2mat(self.Qsh,self.N)
         if Sonly:
             return vars
         vars['Pf']    = hlp.var2mat(self.Pf, self.L)
@@ -523,10 +560,7 @@ class ZoneMILP(object):
         vars['theta'] = hlp.var2mat(self.theta, self.N)
         vars['u']     = hlp.var2mat(self.u, self.N)
         vars['phi']   = hlp.var2mat(self.phi,self.L)
-        if self.Ngsh > 0:
-            vars['GS']= hlp.var2mat(self.Psh,self.N)
         if self.Nbsh > 0:
-            vars['BS']= hlp.var2mat(self.Qsh,self.N)
             vars['BSp']=hlp.var2mat(self.Qshp,self.N)
             vars['BSn']=hlp.var2mat(self.Qshn,self.N)
         if includez:

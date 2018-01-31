@@ -1,4 +1,5 @@
 import networkx as nx
+import numpy as np
 import helpers as hlp
 import logging
 import logfun as lg
@@ -6,6 +7,28 @@ import logfun as lg
 #FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
 #logging.basicConfig(format=FORMAT,level=logging.DEBUG,datefmt='%H:%M:%S')
 
+def topology_generator(type='ER', **kwargs):
+    if type=='ER':
+        n = int(kwargs.get('N', 2000))
+        deg_avg = float(kwargs.get('deg_avg', 2.5))
+        p = float(kwargs.get('p', deg_avg/float(n)))
+        return random_graph(n,p)
+    else:
+        raise(Exception('unknow type %s' %(type)))
+
+def random_graph(n,p):
+    """ create random graph and pick largest connected component """
+    ER = nx.convert_node_labels_to_integers(sorted(nx.connected_component_subgraphs(nx.fast_gnp_random_graph(n=n, p=p)), key=len, reverse=True)[0])
+    G = nx.MultiDiGraph()
+    id = 0
+    for u, v in ER.edges_iter():
+        if np.random.rand() < 0.5:
+            G.add_edge(u, v, attr_dict={'id':id})
+        else:
+            G.add_edge(v, u, attr_dict={'id':id})
+        id += 1
+    return G
+        
 def topology(bus_data,branch_data):
     nmap   = dict(zip(bus_data['BUS_I'],range(bus_data.shape[0])))
     f_node = [nmap[i] for i in branch_data['F_BUS']]
