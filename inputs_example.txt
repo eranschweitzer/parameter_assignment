@@ -1,0 +1,41 @@
+### saving and logging
+fdata: cases/case118
+savename: pickle_data/case118_NoQflowlimit_loss3.pkl
+logfile: logs/case118_NoQflowlimit_loss3.log
+
+### parallalization params
+parallel: False
+parallel_zones: False
+workers: self
+
+### sampling params
+include_shunts: False
+const_rate: False
+actual_vars_d: False
+actual_vars_g: True
+actual_vars_z: True
+
+### Topology 
+Nmax: 400
+Nmin: 50
+topology: None
+N: 2500
+deg_avg: 3.5
+
+### EA options
+random_solve: False
+generations: 5
+individuals: 15 
+ea_select: 7
+itermax: 5
+lossmin: 0.03
+Qlims: False
+
+### solution options
+rho: 100
+aug_relax: True
+remove_abs: True
+Threads: 15
+
+### Misc
+debug: False 
