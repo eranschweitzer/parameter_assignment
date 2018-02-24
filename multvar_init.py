@@ -13,8 +13,25 @@ def topology_generator(type='ER', **kwargs):
         deg_avg = float(kwargs.get('deg_avg', 2.5))
         p = float(kwargs.get('p', deg_avg/float(n)))
         return random_graph(n,p)
+    elif type == 'RT':
+        ftop = kwargs.get('topology_file', None)
+        if ftop is None:
+            raise(Exception('No topology_file specified for RT topology'))
+        return RTsmallworld(ftop)
     else:
         raise(Exception('unknow type %s' %(type)))
+
+def RTsmallworld(ftop):
+    import pandas as pd
+    top = pd.read_csv(ftop)
+    # change to zero indexing
+    top['f'] -= 1
+    top['t'] -= 1
+    f_node = top['f'].values
+    t_node = top['t'].values
+    G = nx.MultiDiGraph()
+    G.add_edges_from(zip(f_node,t_node,[{'id':i} for i in range(f_node.shape[0])]))
+    return G
 
 def random_graph(n,p):
     """ create random graph and pick largest connected component """
