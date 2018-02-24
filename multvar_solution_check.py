@@ -116,6 +116,7 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
     logger.info('Maximum |Q balance|: %0.3g' , max(np.abs(balance['Q'])))
     logger.info('Maximum angle difference: %0.2f deg' ,max(np.abs(delta))*180/np.pi)
     logger.info('Maximum differentce between phi and delta^2/2 (diff, delta, phi): %0.3g, %0.3g, %0.3g' ,max(np.abs(phierr)), delta[phierr_idx], data['phi'][phierr_idx])
+    logger.info('# of occurances where delta^2/2 - phi < 0: %d', sum(phierr < -1e-5))
     logger.info('Maximum v: %0.3f, Minimum v: %0.3f' , max(np.exp(data['u'])), min(np.exp(data['u'])))
     logger.info('Pmax violations: %d, Pmin violations: %d' ,sum(Plim['max']), sum(Plim['min']))
     logger.info('Qmax violations: %d, Qmin violations: %d' ,sum(Qlim['max']), sum(Qlim['min']))
@@ -137,9 +138,9 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
     else:
         logger.info('\tNo Bsh')
     logger.info('Slacks:')
-    logger.info('\t Max Flow Slack: %0.3f', max(data['sf']))
-    logger.info('\t Max u Slack: %0.3f', max(data['su']))
-    logger.info('\t Max delta Slack: %0.3f', max(data['sd']))
+    logger.info('\t (Max, sum) Flow Slack: %0.3f, %0.3f', max(data['sf']), sum(data['sf']))
+    logger.info('\t (Max, sum) u Slack: %0.3f, %0.3f', max(data['su']), sum(data['su']))
+    logger.info('\t (Max, sum) delta Slack: %0.3f, %0.3f', max(data['sd']), sum(data['sd']))
     if 'beta_p' in data:
         logger.info('Boundary Value Test:')
         logger.info('\tbeta - beta_p + beta_n (max, min): %0.3g, %0.3g', max(beta_abs), min(beta_abs))

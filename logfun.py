@@ -4,6 +4,7 @@ import time
 import logging
 import numpy as np
 from helpers import model_status, progress 
+from gurobipy import GurobiError
 
 def logging_setup(fname=None, level=logging.DEBUG, logger='root', ret=False):
     #FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
@@ -195,7 +196,7 @@ def log_iterations(s,pre=False,print_boundary=False, logger=None, zone=None):
                 Qgslack = s.Qgslack.X
             except:
                 Qgslack = 0
-        except AttributeError:
+        except (AttributeError, GurobiError):
             if zone is None:
                 logger.info("Solved with status %s (%d)", model_status(s.m), s.m.status)
             else:
@@ -331,7 +332,7 @@ def log_outsource_wait(worker, returncode, logger=None):
         logger = logging.getLogger('root')
     logger.info('Work on %s terminated with code %s', worker, returncode)
 
-def log_reset(ind,logger=None):
+def log_reset(ind,logger=None, perm='Z'):
     if logger is None:
         logger = logging.getLogger('root')
-    logger.info('Problem with solution for individual %s: Permuting Z and restarting', ind)
+    logger.info('Problem with solution for individual %s: Permuting %s and restarting', ind, perm)
