@@ -87,7 +87,8 @@ def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,a
     genmap = dict(zip(gen_data['GEN_BUS'].unique(),range(len(gen_data['GEN_BUS'].unique()))))
     GBnum = len(genmap) 
     x['Pgmax'] = np.zeros(GBnum)
-    x['Pgmin'] = np.zeros(GBnum)
+    x['Pgmin'] = np.empty(GBnum)
+    x['Pgmin'][:] = np.inf
     x['Qgmax'] = np.zeros(GBnum)
     for bus,pmax,pmin,qmax,status in zip(gen_data['GEN_BUS'],gen_data['PMAX'],gen_data['PMIN'],gen_data['QMAX'],gen_data['GEN_STATUS']):
         if status > 0:
@@ -234,6 +235,7 @@ if __name__ == "__main__":
     resz = multivariate_z(branch_data)
     import ipdb; ipdb.set_trace()
     resd,resg,resf = multivariate_power(bus_data,gen_data)
+    ipdb.set_trace()
     sys.exit(0)
     Pd = bus_data['PD'].values
     x = branch_data['BR_X'].values
