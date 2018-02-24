@@ -12,7 +12,7 @@ import helpers as hlp
 import multvar_init as init
 
 
-def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=True, actual_vars_d=False, actual_vars_g=True, actual_vars_z=True):
+def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=True, actual_vars_d=False, actual_vars_g=True, actual_vars_z=True, ensure_load=False):
 
     start = time.time()
     FORMAT = '%(asctime)s %(levelname)7s: %(message)s'
@@ -30,6 +30,7 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Tr
     actual_vars_g = actual_vars_g in truelist
     include_shunts= include_shunts in truelist
     const_rate    = const_rate in truelist
+    ensure_load   = ensure_load in truelist
 
     ##### Define Constants ###############
     Nmax = int(Nmax); Nmin = int(Nmin)
@@ -38,7 +39,7 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Tr
     htheta = 7          # number of segments for approximating (theta_f - theta_t)^2/2
     umin = np.log(0.9)  # minimum ln(voltage)
     umax = np.log(1.05) # maximum ln(voltage)
-    lossmin = 0.01      # minimum losses required (fraction = (Pg - Pd)/Pg)
+    lossmin = 0.03      # minimum losses required (fraction = (Pg - Pd)/Pg)
     lossterm= 0.05      # terminate optimization when if losses are at this level or below
     thresholds = {'gap':       5,
                   'mean_diff': 0.05,
@@ -100,6 +101,10 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Tr
         z = hlp.multivar_z_sample(L,resz)
         log_input_samples(S,z)
 
+        if ensure_load:
+            S['Pd'] *= bus_data['PD'].sum()/S['Pd'].sum()
+            S['Qd'] *= bus_data['QD'].sum()/S['Qd'].sum()
+
         ### get primitive admittance values ####
         Y = hlp.Yparts(z['r'],z['x'],b=z['b'],tau=z['tap'],phi=z['shift'])
         bigM = hlp.bigM_calc(Y,fmax,umax,umin,dmax)
@@ -111,8 +116,11 @@ def main(savename, fdata, Nmax=400, Nmin=50, include_shunts=False, const_rate=Tr
 
     ###### Saving ######
     saveparts = savename.split('.') 
-    pickle.dump(vars,\
-            open(saveparts[0] + timestamp() + "inputstamp_" + input_timestamp + "." + saveparts[1],'wb'))
+    fname = saveparts[0] + timestamp() + "inputstamp_" + input_timestamp + "." + saveparts[1]
+    pickle.dump(vars,open(fname,'wb'))
+    import makempc as mmpc
+    mpcname = fname.split('.')[0] + ".mat"
+    mmpc.savempc(vars, mpcname)
     #### run solution check####
     import multvar_solution_check as solchk
     solchk.rescheck(vars)
