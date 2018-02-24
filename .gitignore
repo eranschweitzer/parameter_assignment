@@ -3,6 +3,7 @@ random_stuff/*
 from_syngrid/*
 cases/*
 logs/*
+mpc/*
 .DS_Store
 *.pdf
 *.log
