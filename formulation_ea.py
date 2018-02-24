@@ -177,8 +177,9 @@ class ZoneMILP(object):
         self.Qf    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qf")
         self.Qt    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qt")
 
-        self.Qfabs = self.m.addVars(L, name="Qfabs")
-        self.Qtabs = self.m.addVars(L, name="Qtabs")
+        if consts['Qlims']:
+            self.Qfabs = self.m.addVars(L, name="Qfabs")
+            self.Qtabs = self.m.addVars(L, name="Qtabs")
 
         # slacks
         self.sf    = self.m.addVars(L,lb=0, ub=0.5*consts['fmax'], name="sf") # flow limit slack
@@ -236,10 +237,11 @@ class ZoneMILP(object):
         # var generation plus import PLUS export should be positive. Idea is to not let generators only absorb vars
         self.m.addConstr( self.Qg.sum("*") + self.Qgslack >= 0 )
         # absolute value of reactive power flow
-        self.m.addConstrs( self.Qfabs[i] + self.Qf[i] >= 0 for i in range(L))
-        self.m.addConstrs( self.Qfabs[i] - self.Qf[i] >= 0 for i in range(L))
-        self.m.addConstrs( self.Qtabs[i] + self.Qt[i] >= 0 for i in range(L))
-        self.m.addConstrs( self.Qtabs[i] - self.Qt[i] >= 0 for i in range(L))
+        if consts['Qlims']:
+            self.m.addConstrs( self.Qfabs[i] + self.Qf[i] >= 0 for i in range(L))
+            self.m.addConstrs( self.Qfabs[i] - self.Qf[i] >= 0 for i in range(L))
+            self.m.addConstrs( self.Qtabs[i] + self.Qt[i] >= 0 for i in range(L))
+            self.m.addConstrs( self.Qtabs[i] - self.Qt[i] >= 0 for i in range(L))
         
         # edge constraints
         for _n1,_n2,_l in G.edges_iter(data='id'):
@@ -323,26 +325,20 @@ class ZoneMILP(object):
         ###############
         # Objective
         ###############
-        if Nbsh > 0:
-            def obj(scale=1):
-                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
-                for k,v in w.items():
-                    w[k] = max(v*scale,v)
-                w['phi'] = max(w.values())
-                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") + w['Qgslack']*self.Qgslack\
-                        + self.Qfabs.sum("*") + self.Qtabs.sum("*")\
+        def obj(scale=1):
+            w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
+            for k,v in w.items():
+                w[k] = max(v*scale,v)
+            w['phi'] = max(w.values())
+            out = self.Pg.sum('*') + w['phi']*self.phi.sum('*') + w['Qgslack']*self.Qgslack\
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") \
                         + w['beta']*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")) 
-        else:
-            def obj(scale=1):
-                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
-                for k,v in w.items():
-                    w[k] = max(v*scale,v)
-                w['phi'] = max(w.values())
-                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + w['Qgslack']*self.Qgslack\
-                        + self.Qfabs.sum("*") + self.Qtabs.sum("*")\
-                        + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") \
-                        + w['beta']*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")) 
+            if self.Nbsh > 0:
+                out += self.Qshp.sum("*") + self.Qshn.sum("*")
+            if self.consts['Qlims']:
+                out += self.Qfabs.sum("*") + self.Qtabs.sum("*")
+            return out
+
         self.obj = obj
         #self.m.setObjective(self.obj() + 2*(self.beta_p.sum('*') + self.beta_n.sum("*") + self.gamma_p.sum("*") + self.gamma_n.sum("*")), gb.GRB.MINIMIZE)
         self.m.setObjective(self.obj(), gb.GRB.MINIMIZE)
@@ -444,24 +440,18 @@ class ZoneMILP(object):
         self.remove_try(self.gamma_p)
         self.remove_try(self.gamma_n)
 
-        if self.Nbsh > 0:
-            def obj(scale=1):
-                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
-                for k,v in w.items():
-                    w[k] = max(v*scale,v)
-                w['phi'] = max(w.values())
-                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + self.Qshp.sum("*") + self.Qshn.sum("*") + w['Qgslack']*self.Qgslack\
-                        + self.Qfabs.sum("*") + self.Qtabs.sum("*")\
-                        + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*")
-        else:
-            def obj(scale=1):
-                w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
-                for k,v in w.items():
-                    w[k] = max(v*scale,v)
-                w['phi'] = max(w.values())
-                return self.Pg.sum('*') + w['phi']*self.phi.sum('*') + w['Qgslack']*self.Qgslack\
-                        + self.Qfabs.sum("*") + self.Qtabs.sum("*")\
+        def obj(scale=1):
+            w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
+            for k,v in w.items():
+                w[k] = max(v*scale,v)
+            w['phi'] = max(w.values())
+            out = self.Pg.sum('*') + w['phi']*self.phi.sum('*') + w['Qgslack']*self.Qgslack\
                         + w['sf']*self.sf.sum("*") + w['su']*self.su.sum("*") + w['sd']*self.sd.sum("*") 
+            if self.Nbsh > 0:
+                out += self.Qshp.sum("*") + self.Qshn.sum("*")
+            if self.consts['Qlims']:
+                out += self.Qfabs.sum("*") + self.Qtabs.sum("*")
+            return out
         self.obj = obj
 
     def remove_try(self, var):

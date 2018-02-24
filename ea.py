@@ -46,6 +46,7 @@ class EAindividual(object):
         self.opt  = None
         self.vars = None
         self.ind  = None
+        self.inf_cnt = 0;
         self.zones = []
         self.Slabels = ['Pgmax', 'Pgmin', 'Qgmax', 'Pd', 'Qd', 'BS', 'GS']
 
@@ -71,6 +72,7 @@ class EAindividual(object):
                     self._S[k] = v
             
             self.zones.append(fm.ZoneMILP(inputs['globals']['G'], inputs['globals']['consts'], {'z':inputs['globals']['z'], 'S': self._S}, self.Z, zone=0, nperm=True, ind=self.ind))
+            self.zones[0].set_timelimit(inputs['globals']['consts']['rndslv_params']['timelimit'])
                 
     
     def copy(self):
@@ -116,6 +118,22 @@ class EAindividual(object):
             if logging is not None:
                 logging['log_single_system'](self.opt, start=True, logger=logging['logger'])
             self.opt.optimize()
+            if ((self.opt.m.status == 4) or (self.opt.m.status == 9)) and inputs['globals']['consts']['random_solve'] and self.inf_cnt < inputs['globals']['consts']['rndslv_params']['rep_max']:
+                ### terminated due to time (should only occure if node permutation was fixed
+                ### OR
+                ### terminated due infeasibility/unboundedness (should only occure if node permutation was fixed
+                # repermute both Z and Pi
+                self.inf_cnt += 1
+                self.Z = np.random.permutation(self.Z)
+                self.zones = []
+                lg.log_reset(self.ind, logger=logging['logger'], perm='Pi')
+                lg.log_reset(self.ind, logger=logging['logger'], perm='Z')
+                if logging['logger'] is not None:
+                    lg.log_reset(self.ind, perm='Pi')
+                    lg.log_reset(self.ind, perm='Z')
+                self.initialize_zones(inputs)
+                self.solve(inputs, logging=logging, parallel=parallel, parallel_zones=parallel_zones, **kwargs)
+                return
             if logging is not None:
                 logging['log_single_system'](self.opt, start=False, logger=logging['logger'])
         else:
@@ -199,7 +217,7 @@ class EAindividual(object):
     def set_f(self):
         try:
             self.f = self.opt.objective
-        except AttributeError:
+        except (AttributeError, gb.GurobiError):
             self.f = np.inf
             return
     
@@ -227,8 +245,9 @@ class EAindividual(object):
             if l not in self.vars:
                 try: 
                     self.vars[l] = self._S[l]
-                except KeyError:
+                except (AttributeError, KeyError):
                     ### should be here if l= "BS" or "GS" and these are not in self._S[l]
+                    ### OR if a single system was solved and therefore there is no self._S
                     pass
         ### add branch variables
         for k,v in z.items():
@@ -530,7 +549,8 @@ class EAgeneration(object):
         conns = []
         jobs  = []
         for i, psi in enumerate(self.Psi):
-            psi.add_id(i)
+            if psi.ind is None:
+                psi.add_id(i)
             parent_conn, child_conn = mlt.Pipe()
             conns.append(parent_conn)
             jobs.append( mlt.Process( target=self.parallel_solve, args=(psi, psi.ind, child_conn, s, logname), daemon=False ) )

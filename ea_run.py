@@ -39,6 +39,7 @@ def main(savename, fdata, topology=None, Nmax=400, Nmin=50, include_shunts=False
                'mutate_probability':0.05}
     C['aug_relax'] = False
     C['beta2_err'] = 0.01
+    C['Qlims']     = True
     C['solve_kwargs'] = {'remove_abs': True,
                          'solck': False,
                          'print_boundary': False,
@@ -49,6 +50,7 @@ def main(savename, fdata, topology=None, Nmax=400, Nmin=50, include_shunts=False
     C['parallel_opt'] = {'parallel':False, 'parallel_zones': False, 'workers': None, 'dump_path': 'pickle_data' }
     C['gurobi_config'] = {'Threads': 60, 'MIPgap': 0.15, 'LogFile': '/tmp/GurobiMultivar.log', 'MIPFocus': 1}
     C['random_solve'] = False
+    C['rndslv_params'] = {'rep_max': 10, 'timelimit': 300}
     hlp.update_consts(C,fin)
 
     C['htheta'] = hlp.polyhedral_h(C['dmax'], C['phi_err'])
