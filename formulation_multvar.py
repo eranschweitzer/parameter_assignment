@@ -76,7 +76,7 @@ def mycallback2(model,where):
     else:
         pass
 
-def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
+def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM, Qlims=True):
 
     N = G.number_of_nodes()
     L = G.number_of_edges()
@@ -135,6 +135,9 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     Pt = m.addVars(L,lb=-fmax, ub=fmax, name="Pt")
     Qf = m.addVars(L,lb=-fmax, ub=fmax, name="Qf")
     Qt = m.addVars(L,lb=-fmax, ub=fmax, name="Qt")
+    if Qlims:
+        Qfabs = m.addVars(L, name="Qfabs")
+        Qtabs = m.addVars(L, name="Qtabs")
 
     m._Pg = Pg
     d = dmax/htheta
@@ -142,12 +145,18 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     # Constraints
     ###############
     m.addConstr( Pg.sum("*") >= m._pload*(1/(1 - lossmin)) )
+    if Qlims:
+        m.addConstrs( Qfabs[i] + Qf[i] >= 0 for i in range(L))
+        m.addConstrs( Qfabs[i] - Qf[i] >= 0 for i in range(L))
+        m.addConstrs( Qtabs[i] + Qt[i] >= 0 for i in range(L))
+        m.addConstrs( Qtabs[i] - Qt[i] >= 0 for i in range(L))
+
     for n1,n2,l in G.edges_iter(data='id'):
         m.addConstr( theta[n1] - theta[n2] <=  dmax)
         m.addConstr( theta[n1] - theta[n2] >= -dmax)
 
         ##### flow limits #########
-        if limitflag:
+        if not limitflag:
             m.addConstr(-sum( Z[l,i]*z['rate'][i] for i in range(L) ) <= Pf[l] )
             m.addConstr( sum( Z[l,i]*z['rate'][i] for i in range(L) ) >= Pf[l] )
             m.addConstr(-sum( Z[l,i]*z['rate'][i] for i in range(L) ) <= Pt[l] )
@@ -209,7 +218,9 @@ def single_system(G,lossmin,lossterm,fmax,dmax,htheta,umin,umax,z,S,bigM):
     if Nbsh > 0:
         obj = Pg.sum('*') + phi.sum('*') + Qshp.sum('*') + Qshn.sum('*')
     else:
-        obj = Pg.sum('*') + phi.sum('*')
+        obj = Pg.sum('*') + phi.sum('*') 
+    if Qlims:
+        obj += Qfabs.sum("*") + Qtabs.sum("*")
 
     ###############
     # Solve
