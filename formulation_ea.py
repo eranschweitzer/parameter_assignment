@@ -87,7 +87,7 @@ class ZoneMILP(object):
             rlmap[v] = k
         ### get primitive admittance values ####
         Y = hlp.Yparts(params['z']['r'], params['z']['x'], b=params['z']['b'], tau=params['z']['tap'], phi=params['z']['shift'])
-        sil = hlp.calc_sil(params['z'])
+        sil = hlp.calc_sil(**params['z'])
 
         
         ### save inputs

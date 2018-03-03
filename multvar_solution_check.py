@@ -92,6 +92,11 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
         Flim[fl] = (data[fl] < -data['rate'] - data['sf'] - 1e-6 ) & (data[fl] > data['rate'] + data['sf'] + 1e-6)
         #Flim[fl] = np.abs(data[fl] + data['sfn'] - data['sfp']) - data['rate']
     
+    ### sil
+    sil = hlp.calc_sil(**data)
+    Sf  = np.sqrt(Pf**2 + Qf**2)
+    silavg = np.mean([Sf[i]/sil[i] for i in sil])
+
     #if np.any(Flim['Qf']) :
     #    import ipdb; ipdb.set_trace()
 
@@ -120,6 +125,7 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
     logger.info('Maximum v: %0.3f, Minimum v: %0.3f' , max(np.exp(data['u'])), min(np.exp(data['u'])))
     logger.info('Pmax violations: %d, Pmin violations: %d' ,sum(Plim['max']), sum(Plim['min']))
     logger.info('Qmax violations: %d, Qmin violations: %d' ,sum(Qlim['max']), sum(Qlim['min']))
+    logger.info*('Average Fraction of SIL loading: %0.3f', silavg)
     logger.info('Flow limits:')
     logger.info('Sum Real Power Violations (including slacks) (Pf, Pt): %d, %d', sum(Flim['Pf']), sum(Flim['Pt']))
     logger.info('Sum Reactive Power Violations (including slacks) (Qf, Qt): %d, %d', sum(Flim['Qf']), sum(Flim['Qt']))
