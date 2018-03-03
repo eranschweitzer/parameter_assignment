@@ -807,6 +807,21 @@ def polyhedral_h(delta_max,epsilon):
     """ return parameter h for creating polyhedral constraints to quadratic terms """
     return np.ceil( delta_max/np.sqrt(epsilon) ) 
 
+def calc_sil(z):
+    """ z is the parameter dict with fields: r, x, b, tap and shift 
+    SIL/Sbase = sqrt( (G + jB)/(R + jX) )
+    letting Z^2 = R^2 + X^2 and since G is always 0
+    SIL =  sqrt( jB*(R - jX)/Z^2) = 1/Z*sqrt(B*X + jB*R)
+        = sqrt(B)/Z*sqrt(X + jR)
+        = sqrt(B)/Z*sqrt(sqrt(Z^2)) = sqrt(B)/sqrt(Z)
+    """
+    zabs = np.sqrt(z['r']**2 + z['x']**2)
+
+    # filter out transformer branches (off nominal tap, shift, and zero b)
+    idx  = np.where((z['tap'] == 1) & (z['shift'] == 0) & (z['b'] != 0) )[0]
+    return dict(zip(idx, np.sqrt(np.abs(z['b'][idx])/zabs[idx])))
+
+
 def savepath_replace(savename, newpath):
     parts = savename.split('/')
     if newpath[-1] != '/':
@@ -823,6 +838,7 @@ def testing(*args):
     z    = multivar_z_sample(M,resz)
     dfz  = pd.DataFrame(z)
     import ipdb; ipdb.set_trace()
+    sil  = calc_sil(z)
     res = ftin.multivariate_power(bus_data,gen_data)
     x = multivar_power_sample(N,*res)
     df = pd.DataFrame({k:v for k,v in x.items() if k!='shunt'})

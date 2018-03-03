@@ -87,6 +87,8 @@ class ZoneMILP(object):
             rlmap[v] = k
         ### get primitive admittance values ####
         Y = hlp.Yparts(params['z']['r'], params['z']['x'], b=params['z']['b'], tau=params['z']['tap'], phi=params['z']['shift'])
+        sil = hlp.calc_sil(params['z'])
+
         
         ### save inputs
         self.N = N; self.L = L
@@ -181,10 +183,15 @@ class ZoneMILP(object):
             self.Qfabs = self.m.addVars(L, name="Qfabs")
             self.Qtabs = self.m.addVars(L, name="Qtabs")
 
+        if consts['sil']['usesil']:
+            self.Pfabs = self.m.addVars(L, lb=0, name='Pfabs')
+
         # slacks
         self.sf    = self.m.addVars(L,lb=0, ub=0.5*consts['fmax'], name="sf") # flow limit slack
         self.su    = self.m.addVars(N,lb=0, ub=0.5*consts['umax'], name="su") # voltage slack up
         self.sd    = self.m.addVars(L,lb=0, ub=np.pi-consts['dmax'], name="sd") #angle difference slack up
+        if consts['sil']['usesil']:
+            self.ssil = self.m.addVar(lb=0, name='ssil')
 
         #NOTE: beta and gamma are on EXTERNAL/GLOBAL indexing!!!!
         self.beta   = self.m.addVars(ebound, lb=-consts['fmax'], ub=consts['fmax'], name='beta')
@@ -207,10 +214,11 @@ class ZoneMILP(object):
         self.m._lmap  = lmap
         self.m._tmpconst = []
         self.m._zone = zone
-        dphi = 2*consts['dmax']/consts['htheta']
         self.w  = {l: 0 for l in ebound}
         self.nu = {l: 0 for l in ebound}
 
+        dphi = 2*consts['dmax']/consts['htheta']
+        derate = 1/np.sqrt(2);
         ###############
         # Constraints
         ###############
@@ -223,14 +231,14 @@ class ZoneMILP(object):
         # beta limits
         for l in ebound:
             zl = zperm[l]
-            self.m.addConstr( self.beta[l]     >= -params['z']['rate'][zl] )
-            self.m.addConstr( self.beta[l]     <= +params['z']['rate'][zl] )
-            self.m.addConstr( self.gamma[l]    >= -params['z']['rate'][zl] )
-            self.m.addConstr( self.gamma[l]    <= +params['z']['rate'][zl] )
-            self.bp_lim = self.m.addConstr( self.beta_p[l]   <= +params['z']['rate'][zl] )
-            self.bn_lim = self.m.addConstr( self.beta_n[l]   <= +params['z']['rate'][zl] )
-            self.gp_lim = self.m.addConstr( self.gamma_p[l]  <= +params['z']['rate'][zl] )
-            self.gn_lim = self.m.addConstr( self.gamma_n[l]  <= +params['z']['rate'][zl] )
+            self.m.addConstr( self.beta[l]     >= -params['z']['rate'][zl]*derate )
+            self.m.addConstr( self.beta[l]     <= +params['z']['rate'][zl]*derate )
+            self.m.addConstr( self.gamma[l]    >= -params['z']['rate'][zl]*derate )
+            self.m.addConstr( self.gamma[l]    <= +params['z']['rate'][zl]*derate )
+            self.bp_lim = self.m.addConstr( self.beta_p[l]   <= +params['z']['rate'][zl]*derate )
+            self.bn_lim = self.m.addConstr( self.beta_n[l]   <= +params['z']['rate'][zl]*derate )
+            self.gp_lim = self.m.addConstr( self.gamma_p[l]  <= +params['z']['rate'][zl]*derate )
+            self.gn_lim = self.m.addConstr( self.gamma_n[l]  <= +params['z']['rate'][zl]*derate )
 
         # minimum loss constraint
         self.m.addConstr( self.Pg.sum("*") + sum(self.beta[i] for _,j in ebound_map['in'].items() for i in j) - sum(self.beta[i] for _,j in ebound_map['out'].items() for i in j) >= self.m._pload*(1/(1-consts['lossmin'])) ) 
@@ -242,8 +250,13 @@ class ZoneMILP(object):
             self.m.addConstrs( self.Qfabs[i] - self.Qf[i] >= 0 for i in range(L))
             self.m.addConstrs( self.Qtabs[i] + self.Qt[i] >= 0 for i in range(L))
             self.m.addConstrs( self.Qtabs[i] - self.Qt[i] >= 0 for i in range(L))
-        
+        if consts['sil']['usesil']:
+            self.m.addConstrs( self.Pfabs[i] + self.Pf[i] >= 0 for i in range(L))
+            self.m.addConstrs( self.Pfabs[i] - self.Pf[i] >= 0 for i in range(L))
+
         # edge constraints
+        silcnt = 0
+        silcnstr = gb.LinExpr()
         for _n1,_n2,_l in G.edges_iter(data='id'):
             n1 = nmap[_n1]; n2 = nmap[_n2];  l = lmap[_l]; zl = zperm[_l];
             ### angle limits
@@ -251,14 +264,14 @@ class ZoneMILP(object):
             self.m.addConstr( self.theta[n1] - self.theta[n2] >= -consts['dmax'] - self.sd[l])
 
             ##### flow limits #########
-            self.m.addConstr( self.Pf[l]  >= -params['z']['rate'][zl] - self.sf[l])
-            self.m.addConstr( self.Pf[l]  <= +params['z']['rate'][zl] + self.sf[l])
-            self.m.addConstr( self.Pt[l]  >= -params['z']['rate'][zl] - self.sf[l])
-            self.m.addConstr( self.Pt[l]  <= +params['z']['rate'][zl] + self.sf[l])
-            self.m.addConstr( self.Qf[l]  >= -params['z']['rate'][zl] - self.sf[l])
-            self.m.addConstr( self.Qf[l]  <= +params['z']['rate'][zl] + self.sf[l])
-            self.m.addConstr( self.Qt[l]  >= -params['z']['rate'][zl] - self.sf[l])
-            self.m.addConstr( self.Qt[l]  <= +params['z']['rate'][zl] + self.sf[l])
+            self.m.addConstr( self.Pf[l]  >= -params['z']['rate'][zl]*derate - self.sf[l])
+            self.m.addConstr( self.Pf[l]  <= +params['z']['rate'][zl]*derate + self.sf[l])
+            self.m.addConstr( self.Pt[l]  >= -params['z']['rate'][zl]*derate - self.sf[l])
+            self.m.addConstr( self.Pt[l]  <= +params['z']['rate'][zl]*derate + self.sf[l])
+            self.m.addConstr( self.Qf[l]  >= -params['z']['rate'][zl]*derate - self.sf[l])
+            self.m.addConstr( self.Qf[l]  <= +params['z']['rate'][zl]*derate + self.sf[l])
+            self.m.addConstr( self.Qt[l]  >= -params['z']['rate'][zl]*derate - self.sf[l])
+            self.m.addConstr( self.Qt[l]  <= +params['z']['rate'][zl]*derate + self.sf[l])
             
             for t in range(int(consts['htheta']) + 1):
                 self.m.addConstr(self.phi[l] >= -0.5*(-consts['dmax'] + t*dphi)**2 + (-consts['dmax'] + t*dphi)*(self.theta[n1] - self.theta[n2]))
@@ -270,6 +283,14 @@ class ZoneMILP(object):
             self.m.addConstr( self.Qf[l] + Y['bff'][zl]*(1+self.u[n1]) + Y['bft'][zl]*(1-self.phi[l]+self.u[n2]) - Y['gft'][zl]*(self.theta[n1] - self.theta[n2]) == 0)
             self.m.addConstr( self.Pt[l] - Y['gtt'][zl]*(1+self.u[n2]) - Y['gtf'][zl]*(1-self.phi[l]+self.u[n1]) + Y['btf'][zl]*(self.theta[n1] - self.theta[n2]) == 0)
             self.m.addConstr( self.Qt[l] + Y['btt'][zl]*(1+self.u[n2]) + Y['btf'][zl]*(1-self.phi[l]+self.u[n1]) + Y['gtf'][zl]*(self.theta[n1] - self.theta[n2]) == 0)
+
+            if consts['sil']['usesil']:
+                if zl in sil:
+                    silcnstr += self.Pfabs[l]/sil[zl]
+                    silcnt += 1
+        ##### avg sil constraint #####
+        if consts['sil']['usesil']:
+            self.m.addConstr((consts['sil']['Sf2Pf']/silcnt)*silcnstr + self.ssil <= 1)
 
         if not nperm:
             ### load 
@@ -337,6 +358,8 @@ class ZoneMILP(object):
                 out += self.Qshp.sum("*") + self.Qshn.sum("*")
             if self.consts['Qlims']:
                 out += self.Qfabs.sum("*") + self.Qtabs.sum("*")
+            if self.consts['sil']['usesil']:
+                out += self.Pfabs.sum("*") + self.ssil
             return out
 
         self.obj = obj
