@@ -240,8 +240,10 @@ class ZoneMILP(object):
             self.gp_lim = self.m.addConstr( self.gamma_p[l]  <= +params['z']['rate'][zl]*derate )
             self.gn_lim = self.m.addConstr( self.gamma_n[l]  <= +params['z']['rate'][zl]*derate )
 
-        # minimum loss constraint
-        self.m.addConstr( self.Pg.sum("*") + sum(self.beta[i] for _,j in ebound_map['in'].items() for i in j) - sum(self.beta[i] for _,j in ebound_map['out'].items() for i in j) >= self.m._pload*(1/(1-consts['lossmin'])) ) 
+        ### minimum loss constraint
+        # only if Pi is present. Otherwise it doesn't make sense to force a certain amount of losses
+        if not nperm:
+            self.m.addConstr( self.Pg.sum("*") + sum(self.beta[i] for _,j in ebound_map['in'].items() for i in j) - sum(self.beta[i] for _,j in ebound_map['out'].items() for i in j) >= self.m._pload*(1/(1-consts['lossmin'])) ) 
         # var generation plus import PLUS export should be positive. Idea is to not let generators only absorb vars
         self.m.addConstr( self.Qg.sum("*") + self.Qgslack >= 0 )
         # absolute value of reactive power flow
