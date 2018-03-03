@@ -579,7 +579,7 @@ class ZoneMILP(object):
             vars['Qfabs'] = hlp.var2mat(self.Qfabs, self.L)
             vars['Qtabs'] = hlp.var2mat(self.Qtabs, self.L)
         if self.consts['sil']['usesil']:
-            vars['Pfabs'] = hlp.vars2mat(self.Pfabs, self.L)
+            vars['Pfabs'] = hlp.var2mat(self.Pfabs, self.L)
         if self.Nbsh > 0:
             vars['BSp']=hlp.var2mat(self.Qshp,self.N)
             vars['BSn']=hlp.var2mat(self.Qshn,self.N)

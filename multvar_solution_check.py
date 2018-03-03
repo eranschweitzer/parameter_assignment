@@ -132,7 +132,7 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
     logger.info('Maximum v: %0.3f, Minimum v: %0.3f' , max(np.exp(data['u'])), min(np.exp(data['u'])))
     logger.info('Pmax violations: %d, Pmin violations: %d' ,sum(Plim['max']), sum(Plim['min']))
     logger.info('Qmax violations: %d, Qmin violations: %d' ,sum(Qlim['max']), sum(Qlim['min']))
-    logger.info*('Average Fraction of SIL loading: %0.3f', silavg)
+    logger.info('Average Fraction of SIL loading: %0.3f', silavg)
     logger.info('Flow limits:')
     logger.info('Sum Real Power Violations (including slacks) (Pf, Pt): %d, %d', sum(Flim['Pf']), sum(Flim['Pt']))
     logger.info('Sum Reactive Power Violations (including slacks) (Qf, Qt): %d, %d', sum(Flim['Qf']), sum(Flim['Qt']))
