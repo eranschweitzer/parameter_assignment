@@ -97,6 +97,13 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
     Sf  = np.sqrt(Pf**2 + Qf**2)
     silavg = np.mean([Sf[i]/sil[i] for i in sil])
 
+    ### Qabs
+    abs_err = {}
+    for fl in ['Qf', 'Qt', 'Pf']:
+        if fl+'abs' in data:
+            abs_err[ fl+'abs'] = np.abs(data[fl+'abs'] - np.abs(data['Qf']))
+        else:
+            abs_err[fl+'abs'] = None
     #if np.any(Flim['Qf']) :
     #    import ipdb; ipdb.set_trace()
 
@@ -129,6 +136,12 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
     logger.info('Flow limits:')
     logger.info('Sum Real Power Violations (including slacks) (Pf, Pt): %d, %d', sum(Flim['Pf']), sum(Flim['Pt']))
     logger.info('Sum Reactive Power Violations (including slacks) (Qf, Qt): %d, %d', sum(Flim['Qf']), sum(Flim['Qt']))
+    logger.info('Flow Magnitude Vars:')
+    for fl in ['Qfabs', 'Qtabs', 'Pfabs']:
+        if abs_err[fl] is not None:
+            logger.info('\tMagnitude of Maximum error %s: %0.3g', fl, max(abs_err[fl]))
+        else:
+            logger.info('\t%s: N/A', fl)
     logger.info('Shunts:')
     if not isinstance(data['GS'],int):
         logger.info('\tNumber of Gsh: %d', sum(data['GS'] != 0))

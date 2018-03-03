@@ -575,6 +575,11 @@ class ZoneMILP(object):
         vars['theta'] = hlp.var2mat(self.theta, self.N)
         vars['u']     = hlp.var2mat(self.u, self.N)
         vars['phi']   = hlp.var2mat(self.phi,self.L)
+        if self.consts['Qlims']:
+            vars['Qfabs'] = hlp.var2mat(self.Qfabs, self.L)
+            vars['Qtabs'] = hlp.var2mat(self.Qtabs, self.L)
+        if self.consts['sil']['usesil']:
+            vars['Pfabs'] = hlp.vars2mat(self.Pfabs, self.L)
         if self.Nbsh > 0:
             vars['BSp']=hlp.var2mat(self.Qshp,self.N)
             vars['BSn']=hlp.var2mat(self.Qshn,self.N)
