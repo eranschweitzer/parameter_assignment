@@ -15,6 +15,7 @@ def mycallback2(model,where):
         out_sum  = sum(model.cbGetSolution(model._beta[i]) for _,j in model._ebound_map['out'].items() for i in j)
         Pg       = sum(model.cbGetSolution(model._Pg.values()))
         criteria = (Pg - model._pload + in_sum - out_sum)/(Pg + in_sum - out_sum)
+        ssil     = model.cbGetSolution(model._ssil)
         solcnt   = model.cbGet(gb.GRB.Callback.MIPSOL_SOLCNT) + 1
         phiconst = 0
         for _n1,_n2,_l in model._G.edges_iter(data='id'):
@@ -24,7 +25,7 @@ def mycallback2(model,where):
                 phiconst += 1
         #logging.info('Current solution: solcnt: %d, solmin: %d, sum(beta_in)=%0.2f, sum(beta_out)=%0.2f, sum(Pg)=%0.2f, sum(load)=%0.2f, criteria=%0.3g, phiconst=%d',solcnt,model._solmin,in_sum, out_sum, Pg, model._pload, criteria, phiconst)
         lg.log_callback(model, solcnt, in_sum, out_sum, Pg, criteria, phiconst, logger=model._logger)
-        if (solcnt > model._solmin) and (criteria < model._lossterm):
+        if (solcnt > model._solmin) and (criteria < model._lossterm) and (ssil < 1e-5):
             #logging.info('      terminating in MISOL due to minimal losses')
             lg.log_calback_terminate('MISOL', 'minimal losses', logger=model._logger)
             model.terminate()
@@ -192,6 +193,7 @@ class ZoneMILP(object):
         self.sd    = self.m.addVars(L,lb=0, ub=np.pi-consts['dmax'], name="sd") #angle difference slack up
         if consts['sil']['usesil']:
             self.ssil = self.m.addVar(lb=0, name='ssil')
+            self.m._ssil = self.ssil
 
         #NOTE: beta and gamma are on EXTERNAL/GLOBAL indexing!!!!
         self.beta   = self.m.addVars(ebound, lb=-consts['fmax'], ub=consts['fmax'], name='beta')
@@ -349,7 +351,7 @@ class ZoneMILP(object):
         # Objective
         ###############
         def obj(scale=1):
-            w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
+            w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100, 'ssil': 10}
             for k,v in w.items():
                 w[k] = max(v*scale,v)
             w['phi'] = max(w.values())
@@ -361,7 +363,7 @@ class ZoneMILP(object):
             if self.consts['Qlims']:
                 out += self.Qfabs.sum("*") + self.Qtabs.sum("*")
             if self.consts['sil']['usesil']:
-                out += self.Pfabs.sum("*") + self.ssil
+                out += self.Pfabs.sum("*") + w['ssil']*self.ssil
             return out
 
         self.obj = obj
