@@ -13,7 +13,7 @@ def topology_generator(type='ER', **kwargs):
         deg_avg = float(kwargs.get('deg_avg', 2.5))
         p = float(kwargs.get('p', deg_avg/float(n)))
         option = int(kwargs.get('ERoption', 2))
-        return random_graph(n,p, option)
+        return random_graph(n,p, deg_avg, option)
     elif type == 'RT':
         ftop = kwargs.get('topology_file', None)
         if ftop is None:
@@ -34,7 +34,7 @@ def RTsmallworld(ftop):
     G.add_edges_from(zip(f_node,t_node,[{'id':i} for i in range(f_node.shape[0])]))
     return G
 
-def random_graph(n,p, option):
+def random_graph(n,p, deg_avg, option):
     """ create random graph and pick largest connected component """
     if option == 1:
         ER = nx.convert_node_labels_to_integers(sorted(nx.connected_component_subgraphs(nx.fast_gnp_random_graph(n=n, p=p)), key=len, reverse=True)[0])
@@ -55,6 +55,16 @@ def random_graph(n,p, option):
                 if j == n2idx:
                     break
             ER.add_edge(n1, n2)
+        target_branches = round(deg_avg*n/2)
+        while ER.number_of_edges() > target_branches:
+            cut_vert = list(nx.articulation_points(ER))
+            degg1 = [k for k,v in ER.degree().items() if v > 1]
+            while True:
+                n1 = degg1[np.random.randint(len(degg1))]
+                n2 = ER.neighbors(n1)[np.random.randint(ER.degree(n1))]
+                if (ER.degree(n2) > 1) and (not ((n1 in cut_vert) and (n2 in cut_vert) ) ):
+                    break
+            ER.remove_edge(n1, n2)
 
     assert nx.number_connected_components(ER) == 1
     
@@ -165,4 +175,4 @@ def ebound2zones(ebound):
 
 if __name__=='__main__':
     import ipdb; ipdb.set_trace()
-    G = topology_generator(type='ER', avg_deg=2.3, N=2383, ERoption=2)
+    G = topology_generator(type='ER', deg_avg=2.3, N=2383, ERoption=2)
