@@ -12,7 +12,8 @@ def topology_generator(type='ER', **kwargs):
         n = int(kwargs.get('N', 2000))
         deg_avg = float(kwargs.get('deg_avg', 2.5))
         p = float(kwargs.get('p', deg_avg/float(n)))
-        return random_graph(n,p)
+        option = int(kwargs.get('ERoption', 2))
+        return random_graph(n,p, option)
     elif type == 'RT':
         ftop = kwargs.get('topology_file', None)
         if ftop is None:
@@ -33,9 +34,30 @@ def RTsmallworld(ftop):
     G.add_edges_from(zip(f_node,t_node,[{'id':i} for i in range(f_node.shape[0])]))
     return G
 
-def random_graph(n,p):
+def random_graph(n,p, option):
     """ create random graph and pick largest connected component """
-    ER = nx.convert_node_labels_to_integers(sorted(nx.connected_component_subgraphs(nx.fast_gnp_random_graph(n=n, p=p)), key=len, reverse=True)[0])
+    if option == 1:
+        ER = nx.convert_node_labels_to_integers(sorted(nx.connected_component_subgraphs(nx.fast_gnp_random_graph(n=n, p=p)), key=len, reverse=True)[0])
+    elif option == 2:
+        ER  = nx.fast_gnp_random_graph(n=n, p=p)
+        comp = list(nx.connected_components(ER))
+        ## randomly permute compoent order
+        comp = [comp[i] for i in np.random.permutation(len(comp))]
+        
+        ## add a branch connecting each comonent to the next to ensure connectivity
+        for i in range(len(comp)-1):
+            n1idx = np.random.randint(len(comp[i]))
+            n2idx = np.random.randint(len(comp[i+1]))
+            for j, n1 in enumerate(comp[i]):
+                if j == n1idx:
+                    break
+            for j, n2 in enumerate(comp[i+1]):
+                if j == n2idx:
+                    break
+            ER.add_edge(n1, n2)
+
+    assert nx.number_connected_components(ER) == 1
+    
     G = nx.MultiDiGraph()
     id = 0
     for u, v in ER.edges_iter():
@@ -140,3 +162,7 @@ def ebound2zones(ebound):
             else:
                 out[l] = [z]
     return out
+
+if __name__=='__main__':
+    import ipdb; ipdb.set_trace()
+    G = topology_generator(type='ER', avg_deg=2.3, N=2383, ERoption=2)
