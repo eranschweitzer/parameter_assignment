@@ -294,7 +294,7 @@ class ZoneMILP(object):
                     silcnt += 1
         ##### avg sil constraint #####
         if consts['sil']['usesil']:
-            self.m.addConstr((consts['sil']['Sf2Pf']/silcnt)*silcnstr - self.ssil <= 1)
+            self.m.addConstr((consts['sil']['Sf2Pf']/silcnt)*silcnstr - self.ssil <= consts['sil']['siltarget'])
 
         if not nperm:
             ### load 

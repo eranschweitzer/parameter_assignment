@@ -40,7 +40,7 @@ def main(savename, fdata, topology=None, Nmax=400, Nmin=50, include_shunts=False
     C['aug_relax'] = False
     C['beta2_err'] = 0.01
     C['Qlims']     = True
-    C['sil'] = {'usesil': False, 'Sf2Pf': 1.1}
+    C['sil'] = {'usesil': False, 'Sf2Pf': 1.1, 'siltarget': 1}
     C['solve_kwargs'] = {'remove_abs': True,
                          'solck': False,
                          'print_boundary': False,
