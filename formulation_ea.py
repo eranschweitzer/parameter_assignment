@@ -27,28 +27,28 @@ def mycallback2(model,where):
         lg.log_callback(model, solcnt, in_sum, out_sum, Pg, criteria, phiconst, logger=model._logger)
         if (solcnt > model._solmin) and (criteria < model._lossterm) and (ssil < 1e-5):
             #logging.info('      terminating in MISOL due to minimal losses')
-            lg.log_calback_terminate('MISOL', 'minimal losses', logger=model._logger)
+            lg.log_calback_terminate(model, 'MISOL', 'minimal losses', logger=model._logger)
             model.terminate()
     if where == gb.GRB.Callback.MIPSOL:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIPSOL_SOLCNT) + 1
         if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500): 
             #logging.info('      terminating in MISOL due to time')
-            lg.log_calback_terminate('MISOL', 'time', logger=model._logger)
+            lg.log_calback_terminate(model, 'MISOL', 'time', logger=model._logger)
             model.terminate()
     elif where == gb.GRB.Callback.MIP:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIP_SOLCNT) + 1
         if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
             #logging.info('      terminating in MIP due to time')
-            lg.log_calback_terminate('MIP', 'time', logger=model._logger)
+            lg.log_calback_terminate(model, 'MIP', 'time', logger=model._logger)
             model.terminate()
     elif where == gb.GRB.Callback.MIPNODE:
         elapsed_time = model.cbGet(gb.GRB.Callback.RUNTIME)
         solcnt       = model.cbGet(gb.GRB.Callback.MIPNODE_SOLCNT) + 1
         if ((solcnt > 1) and elapsed_time > 500):# or (elapsed_time > 1500):
             #logging.info('      terminating in MIPNODE due to time')
-            lg.log_calback_terminate('MIPNODE', 'time', logger=model._logger)
+            lg.log_calback_terminate(model, 'MIPNODE', 'time', logger=model._logger)
             model.terminate()
     else:
         pass
@@ -181,8 +181,8 @@ class ZoneMILP(object):
         self.Qt    = self.m.addVars(L,lb=-gb.GRB.INFINITY, ub=gb.GRB.INFINITY, name="Qt")
 
         if consts['Qlims']:
-            self.Qfabs = self.m.addVars(L, name="Qfabs")
-            self.Qtabs = self.m.addVars(L, name="Qtabs")
+            self.Qfabs = self.m.addVars(L, lb=0, name="Qfabs")
+            self.Qtabs = self.m.addVars(L, lb=0, name="Qtabs")
 
         if consts['sil']['usesil']:
             self.Pfabs = self.m.addVars(L, lb=0, name='Pfabs')
@@ -468,7 +468,7 @@ class ZoneMILP(object):
         self.remove_try(self.gamma_n)
 
         def obj(scale=1):
-            w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100}
+            w = {'sf': 10, 'su':100, 'sd': 100, 'beta':2, 'Qgslack': 100, 'ssil': 10}
             for k,v in w.items():
                 w[k] = max(v*scale,v)
             w['phi'] = max(w.values())
@@ -478,6 +478,8 @@ class ZoneMILP(object):
                 out += self.Qshp.sum("*") + self.Qshn.sum("*")
             if self.consts['Qlims']:
                 out += self.Qfabs.sum("*") + self.Qtabs.sum("*")
+            if self.consts['sil']['usesil']:
+                out += self.Pfabs.sum("*") + w['ssil']*self.ssil
             return out
         self.obj = obj
 

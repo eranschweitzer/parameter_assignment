@@ -101,7 +101,7 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
     abs_err = {}
     for fl in ['Qf', 'Qt', 'Pf']:
         if fl+'abs' in data:
-            abs_err[ fl+'abs'] = np.abs(data[fl+'abs'] - np.abs(data['Qf']))
+            abs_err[ fl+'abs'] = np.abs(data[fl+'abs'] - np.abs(data[fl]))
         else:
             abs_err[fl+'abs'] = None
     #if np.any(Flim['Qf']) :

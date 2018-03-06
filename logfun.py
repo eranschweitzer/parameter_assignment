@@ -309,10 +309,10 @@ def log_callback(model, solcnt, in_sum, out_sum, Pg, criteria, phiconst, logger=
         logger = logging.getLogger('root')
     logger.info('(zone %d) Current solution: solcnt: %d, solmin: %d, sum(beta_in)=%0.2f, sum(beta_out)=%0.2f, sum(Pg)=%0.2f, sum(load)=%0.2f, criteria=%0.3g, phiconst=%d', model._zone, solcnt, model._solmin, in_sum, out_sum, Pg, model._pload, criteria, phiconst)
 
-def log_calback_terminate(where, why, logger=None):
+def log_calback_terminate(model, where, why, logger=None):
     if logger is None:
         logger = logging.getLogger('root')
-    logger.info('      terminating in %s due to %s', where, why)
+    logger.info('(zone %d)      terminating in %s due to %s', model._zone, where, why)
 
 def log_outsource(w,Psi,savename, logger=None):
     if logger is None:
