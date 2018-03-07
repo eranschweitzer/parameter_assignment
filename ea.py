@@ -375,7 +375,12 @@ def parzone(locals, globals, zperm, zone, logging, kwargs, conn):
     while True:
         #### solve zone ####
         s.optimize(logger=logging['logger'],**kwargs)
-        if s.m.status not in [2,11,9]:
+        #if s.m.status not in [2,11,9]:
+        try:
+            if s.objective > 1e100:
+                conn.send(False)
+                return
+        except (AttributeError, gb.GurobiError):
             conn.send(False)
             return
         with mlt.Lock():
