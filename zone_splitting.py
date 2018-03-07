@@ -16,6 +16,7 @@ def get_zones(G,Nmax,Nmin,debug=False):
         writer = pd.ExcelWriter('python_debug.xlsx', engine='xlsxwriter')
         
     sub_problem_nodes = [np.array(G.nodes())] 
+    Nminflag = False
     while np.any([len(i) > Nmax for i in sub_problem_nodes]):
         nbunch = sub_problem_nodes.pop(np.argmax([len(i) for i in sub_problem_nodes]))
         try:
@@ -47,6 +48,10 @@ def get_zones(G,Nmax,Nmin,debug=False):
                 sub_problem_nodes.append(nbunch)
             i += 1
         sub_problem_nodes.sort(key=len)
+        if Nminflag:
+            import ipdb; ipdb.set_trace()
+            Nminflag = False
+            continue
         # now append nodes in compoents that are too small to their neighbors in other components
         nbunch = None
         i = 0
@@ -54,18 +59,23 @@ def get_zones(G,Nmax,Nmin,debug=False):
         while i < initial_length:
             nbunch = sub_problem_nodes.pop(0)
             if len(nbunch) < Nmin:
+                Nminflag = True
                 neighbors = []
                 for nn in nbunch:
                     neighbors += nx.Graph(G).neighbors(nn)
-                comp_id = None
+                comp_id_dict = {}
                 for nnn in neighbors:
                     try:
                         comp_id = [nnn in sub for sub in sub_problem_nodes].index(True)
-                        break
+                        comp_id_dict[comp_id] = len(sub_problem_nodes[comp_id])
+                        #break
                     except ValueError:
                         pass
-                if comp_id is None:
+                if len(comp_id_dict) == 0:
                     import ipdb; ipdb.set_trace()
+                ### select smallest neighbor zone (to prevent forming zones that are too large)
+                import ipdb; ipdb.set_trace()
+                comp_id = min(comp_id_dict, key=comp_id_dict.get)
                 sub_problem_nodes[comp_id] = np.concatenate([sub_problem_nodes[comp_id],nbunch])
                 
             else:
