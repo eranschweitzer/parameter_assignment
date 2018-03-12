@@ -16,13 +16,15 @@ def topology_generator(type='ER', **kwargs):
         return random_graph(n,p, deg_avg, option)
     elif type == 'RT':
         ftop = kwargs.get('topology_file', None)
+        option  = int(kwargs.get('RToption', 1))
+        deg_avg = float(kwargs.get('deg_avg', 2.5))
         if ftop is None:
             raise(Exception('No topology_file specified for RT topology'))
-        return RTsmallworld(ftop)
+        return RTsmallworld(ftop, option=option, deg_avg=deg_avg)
     else:
         raise(Exception('unknow type %s' %(type)))
 
-def RTsmallworld(ftop):
+def RTsmallworld(ftop, option=1, deg_avg=None):
     import pandas as pd
     top = pd.read_csv(ftop)
     # change to zero indexing
@@ -32,7 +34,42 @@ def RTsmallworld(ftop):
     t_node = top['t'].values
     G = nx.MultiDiGraph()
     G.add_edges_from(zip(f_node,t_node,[{'id':i} for i in range(f_node.shape[0])]))
-    return G
+    if option == 1:
+        return G
+    elif option == 2:
+        if deg_avg is not None:
+            return RTsmallworld_deg_force(G, deg_avg)
+        else:
+            raise(Exception('For RTsmallworld option 2, avg_deg must be specified'))
+    else:
+        raise(Exception('option of r RTsmall World must be either 1 or 2'))
+
+def RTsmallworld_deg_force(G, deg_avg):
+    Gtmp = nx.Graph(G)
+    target_branches = round(deg_avg*Gtmp.number_of_nodes()/2)
+    while Gtmp.number_of_edges() > target_branches:
+        cut_vert = list(nx.articulation_points(Gtmp))
+        degg1 = [k for k,v in Gtmp.degree().items() if v > 1]
+        while True:
+            n1 = degg1[np.random.randint(len(degg1))]
+            n2 = Gtmp.neighbors(n1)[np.random.randint(Gtmp.degree(n1))]
+            if (Gtmp.degree(n2) > 1) and (not ((n1 in cut_vert) and (n2 in cut_vert) ) ):
+                break
+        Gtmp.remove_edge(n1, n2)
+
+    assert nx.number_connected_components(Gtmp) == 1
+
+    G2 = nx.MultiDiGraph()
+    id = 0
+    for u, v in Gtmp.edges_iter():
+        if np.random.rand() < 0.5:
+            G2.add_edge(u, v, attr_dict={'id':id})
+        else:
+            G2.add_edge(v, u, attr_dict={'id':id})
+        id += 1
+    return G2
+
+
 
 def random_graph(n,p, deg_avg, option):
     """ create random graph and pick largest connected component """
