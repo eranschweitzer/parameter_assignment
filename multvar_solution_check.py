@@ -68,7 +68,7 @@ def rescheck(data, G=None, maps=None, ebound_map=None, logger=None):
         data['GS'] = 0
     if 'BS' not in data:
         data['BS'] = 0
-    else:
+    elif data['BS'] != 0:
         bs_abs = np.abs(data['BS']) - (data['BSp'] + data['BSn'])
     balance = {}
     balance['P'] = data['Pg'] - data['GS'] - data['Pd'] - Pfn - Ptn + beta
@@ -177,6 +177,16 @@ def map_values(maps,n1,n2,l):
 
 if __name__ == '__main__':
     import sys
+    from logfun import logging_setup
+    logging_setup()
     fname = sys.argv[1] 
-    data = pickle.load(open(fname,'rb'))
-    rescheck(data)
+    try:
+        ind = int(sys.argv[2])
+    except:
+        ind = None
+    if ind is None:
+        data = pickle.load(open(fname,'rb'))
+        rescheck(data)
+    else:
+        data  = pickle.load(open(fname,'rb'))
+        rescheck(data['vars'][ind], G=data['G'])

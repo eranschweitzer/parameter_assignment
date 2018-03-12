@@ -389,7 +389,11 @@ def parzone(locals, globals, zperm, zone, logging, kwargs, conn):
             with mlt.Lock():
                 s.sol_check()
 
-        conn.send({'beta': s.get_beta(), 'gamma': s.get_gamma()})
+        try:
+            conn.send({'beta': s.get_beta(), 'gamma': s.get_gamma()})
+        except (AttributeError, gb.GurobiError):
+            conn.send(False)
+            return
         
         ### check whether to exit
         flag = conn.recv()
