@@ -49,7 +49,6 @@ def get_zones(G,Nmax,Nmin,debug=False):
             i += 1
         sub_problem_nodes.sort(key=len)
         if Nminflag:
-            import ipdb; ipdb.set_trace()
             Nminflag = False
             continue
         # now append nodes in compoents that are too small to their neighbors in other components
@@ -74,7 +73,6 @@ def get_zones(G,Nmax,Nmin,debug=False):
                 if len(comp_id_dict) == 0:
                     import ipdb; ipdb.set_trace()
                 ### select smallest neighbor zone (to prevent forming zones that are too large)
-                import ipdb; ipdb.set_trace()
                 comp_id = min(comp_id_dict, key=comp_id_dict.get)
                 sub_problem_nodes[comp_id] = np.concatenate([sub_problem_nodes[comp_id],nbunch])
                 
