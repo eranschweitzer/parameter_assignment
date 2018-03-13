@@ -90,6 +90,12 @@ class ZoneMILP(object):
         Y = hlp.Yparts(params['z']['r'], params['z']['x'], b=params['z']['b'], tau=params['z']['tap'], phi=params['z']['shift'])
         sil = hlp.calc_sil(**params['z'])
 
+        ## replace obsurdely large Qlimits with simply large limits
+        ## hopefully this avoids some of the feasibility/unboundedness issues
+        Qgmax = params['S']['Qgmax'].copy()
+        Qgmax_tmp = 2*params['S']['Qd'].sum()
+        Qgmax[Qgmax > Qgmax_tmp] = Qgmax_tmp
+
         
         ### save inputs
         self.N = N; self.L = L
@@ -303,8 +309,8 @@ class ZoneMILP(object):
             ### gen
             self.m.addConstrs( self.Pg[i] <=  sum( self.Pi[i,j]*params['S']['Pgmax'][j] for j in range(N) )/100 for i in range(N))
             self.m.addConstrs( self.Pg[i] >=  sum( self.Pi[i,j]*params['S']['Pgmin'][j] for j in range(N) )/100 for i in range(N))
-            self.m.addConstrs( self.Qg[i] <=  sum( self.Pi[i,j]*params['S']['Qgmax'][j] for j in range(N) )/100 for i in range(N))
-            self.m.addConstrs( self.Qg[i] >= -sum( self.Pi[i,j]*params['S']['Qgmax'][j] for j in range(N) )/100 for i in range(N))
+            self.m.addConstrs( self.Qg[i] <=  sum( self.Pi[i,j]*Qgmax[j] for j in range(N) )/100 for i in range(N))
+            self.m.addConstrs( self.Qg[i] >= -sum( self.Pi[i,j]*Qgmax[j] for j in range(N) )/100 for i in range(N))
         else:
             ### load
             self.m.addConstrs( self.Pd[i] == params['S']['Pd'][rnmap[i]]/100 for i in range(N))
@@ -312,8 +318,8 @@ class ZoneMILP(object):
             ### gen
             self.m.addConstrs( self.Pg[i] <=  params['S']['Pgmax'][rnmap[i]] /100 for i in range(N))
             self.m.addConstrs( self.Pg[i] >=  params['S']['Pgmin'][rnmap[i]] /100 for i in range(N))
-            self.m.addConstrs( self.Qg[i] <=  params['S']['Qgmax'][rnmap[i]] /100 for i in range(N))
-            self.m.addConstrs( self.Qg[i] >= -params['S']['Qgmax'][rnmap[i]] /100 for i in range(N))
+            self.m.addConstrs( self.Qg[i] <=  Qgmax[rnmap[i]] /100 for i in range(N))
+            self.m.addConstrs( self.Qg[i] >= -Qgmax[rnmap[i]] /100 for i in range(N))
 
        
         ### nodal balance
