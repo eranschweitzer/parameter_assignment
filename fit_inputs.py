@@ -59,7 +59,7 @@ def analyze_reactance_statistics(x, fit='pchip', print_out=True):
         print("%0.3g <= x <= %0.3g" %(vmin, vmax))
     return {'vmax': vmax, 'vmin': vmin, fit:fit_obj}
 
-def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,actual_vars_g=True,mvabase=100, Bfracmin=0.1, Bshmin=3.0, include_shunts=True):
+def multivariate_power(bus_data,gen_data,gen_cost=None,bw_method='scott',actual_vars_d=False,actual_vars_g=True,mvabase=100, Bfracmin=0.1, Bshmin=3.0, include_shunts=True):
 
     N = bus_data.shape[0]
     """ Load """
@@ -80,8 +80,8 @@ def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,a
         resd['shunt']['max'][1] = Bshmin
 
     """ gen """
-    order = dict(zip(range(3),['Pgmax','Pgmin','Qgmax']))
-    inkde = list(range(3))
+    order = dict(zip(range(4),['Pgmax','Pgmin','Qgmax', 'Pcost']))
+    inkde = list(range(4))
     vdefault = {}
     x = {}
     genmap = dict(zip(gen_data['GEN_BUS'].unique(),range(len(gen_data['GEN_BUS'].unique()))))
@@ -90,12 +90,20 @@ def multivariate_power(bus_data,gen_data,bw_method='scott',actual_vars_d=False,a
     x['Pgmin'] = np.empty(GBnum)
     x['Pgmin'][:] = np.inf
     x['Qgmax'] = np.zeros(GBnum)
-    for bus,pmax,pmin,qmax,status in zip(gen_data['GEN_BUS'],gen_data['PMAX'],gen_data['PMIN'],gen_data['QMAX'],gen_data['GEN_STATUS']):
-        if status > 0:
-            x['Pgmax'][genmap[bus]] += pmax
-            x['Pgmin'][genmap[bus]] = np.minimum(x['Pgmin'][genmap[bus]],pmin)
-            x['Qgmax'][genmap[bus]] += qmax
-    for i in range(3-1,-1,-1):
+    x['Pcost'] = np.zeros(GBnum)
+    if gen_cost is None:
+        tmpcost = 10*np.ones(gen_data.shape[0])
+    else:
+        tmpcost = gen_cost['COST1']
+    for bus,pmax,pmin,qmax,status, cost in zip(gen_data['GEN_BUS'],gen_data['PMAX'],gen_data['PMIN'],gen_data['QMAX'],gen_data['GEN_STATUS'], tmpcost):
+        #if status > 0: include all generators, not just those that are on.
+        x['Pgmax'][genmap[bus]] += pmax
+        x['Pgmin'][genmap[bus]] = np.minimum(x['Pgmin'][genmap[bus]],pmin)
+        x['Qgmax'][genmap[bus]] += qmax
+        x['Pcost'][genmap[bus]] += cost*pmax
+    x['Pcost'] /= x['Pgmax'] # weighted average
+    x['Pcost'][np.isnan(x['Pcost'])] = 0
+    for i in range(4-1,-1,-1):
         if np.all(x[order[i]] == x[order[i]][0]):
             vdefault[order[i]] = x[order[i]][0]
             x.pop(order[i],None)
@@ -231,10 +239,10 @@ if __name__ == "__main__":
         fit = sys.argv[2]
     except IndexError:
         fit = 'pchip'
-    bus_data, gen_data, branch_data = hlp.load_data(fname)
-    resz = multivariate_z(branch_data)
     import ipdb; ipdb.set_trace()
-    resd,resg,resf = multivariate_power(bus_data,gen_data)
+    bus_data, gen_data, branch_data, gen_cost = hlp.load_data(fname)
+    resz = multivariate_z(branch_data)
+    resd,resg,resf = multivariate_power(bus_data,gen_data, gen_cost=gen_cost)
     ipdb.set_trace()
     sys.exit(0)
     Pd = bus_data['PD'].values

@@ -56,13 +56,14 @@ def load_data(fname):
     bus_data = pd.read_csv(fname + '_bus.csv',header=0);
     gen_data = pd.read_csv(fname + '_gen.csv',header=0);
     branch_data = pd.read_csv(fname + '_branch.csv',header=0);
+    gen_cost = pd.read_csv(fname + '_gencost.csv', header=0);
     
     ####### Convert to zero indexing ############
     bus_data['BUS_I'] -= 1
     gen_data['GEN_BUS'] -= 1
     branch_data['F_BUS'] -= 1
     branch_data['T_BUS'] -= 1
-    return (bus_data,gen_data,branch_data)
+    return (bus_data,gen_data,branch_data, gen_cost)
 
 def degree_one(f,t):
     a = np.sort(np.concatenate([f,t]))
@@ -443,10 +444,10 @@ def multivar_power_sample(N,resd,resg,resf):
     NQgPg        = int(round(resf['Qg_Pg']*Ngen))
 
     while True:
-        x = {k:np.empty(N) for k in ['Pgmax','Pgmin','Qgmax','Pd','Qd']}
+        x = {k:np.empty(N) for k in ['Pgmax','Pgmin','Qgmax','Pcost','Pd','Qd']}
         x['actual_vars_d'] = resd['actual_vars']
         x['actual_vars_g'] = resg['actual_vars']
-        genlist  = ['Pgmax','Pgmin','Qgmax']
+        genlist  = ['Pgmax','Pgmin','Qgmax', 'Pcost']
         loadlist = ['Pd','Qd']
         gensampdict = {resg['order'][j]:i for i,j in enumerate(resg['inkde'])}
 
@@ -833,13 +834,13 @@ def testing(*args):
     fname = args[0]
     N     = int(args[1])
     M     = int(args[2])
-    bus_data, gen_data, branch_data = load_data(fname)
+    bus_data, gen_data, branch_data, gen_cost = load_data(fname)
     resz,fmax = ftin.multivariate_z(branch_data,bw_method=0.01)
     z    = multivar_z_sample(M,resz)
     dfz  = pd.DataFrame(z)
     import ipdb; ipdb.set_trace()
     sil  = calc_sil(**z)
-    res = ftin.multivariate_power(bus_data,gen_data)
+    res = ftin.multivariate_power(bus_data,gen_data, gen_cost=gen_cost)
     x = multivar_power_sample(N,*res)
     df = pd.DataFrame({k:v for k,v in x.items() if k!='shunt'})
     import ipdb; ipdb.set_trace()

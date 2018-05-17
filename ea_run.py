@@ -57,7 +57,7 @@ def main(savename, fdata, topology=None, Nmax=400, Nmin=50, include_shunts=False
     C['htheta'] = hlp.polyhedral_h(C['dmax'], C['phi_err'])
     
     ##### Load Data ######### 
-    bus_data, gen_data, branch_data = hlp.load_data(fdata)
+    bus_data, gen_data, branch_data, gen_cost = hlp.load_data(fdata)
     vmax = bus_data['VM'].max(); vmin = bus_data['VM'].min()
     C['umin'] = min(C['umin'],np.log(vmin))
     C['umax'] = max(C['umax'],np.log(vmax))
@@ -65,7 +65,7 @@ def main(savename, fdata, topology=None, Nmax=400, Nmin=50, include_shunts=False
     #### Fit Power and Impedance Data #### 
     import fit_inputs as ftin
     resz,C['fmax'] = ftin.multivariate_z(branch_data, bw_method=0.01, actual_vars=actual_vars_z, fmaxin=C['fmax'], const_rate=const_rate)
-    resd,resg,resf = ftin.multivariate_power(bus_data, gen_data, actual_vars_d=actual_vars_d, actual_vars_g=actual_vars_g, include_shunts=include_shunts)
+    resd,resg,resf = ftin.multivariate_power(bus_data, gen_data, gen_cost=gen_cost, actual_vars_d=actual_vars_d, actual_vars_g=actual_vars_g, include_shunts=include_shunts)
 
     #### Get Topology ########
     if topology is None:
